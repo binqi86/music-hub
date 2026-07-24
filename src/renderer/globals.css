@@ -1,0 +1,101 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Dark theme — sophisticated deep slate */
+  /* Surface colors stored as RGB triplets for Tailwind opacity support */
+  --color-surface-50: 226 232 240;
+  --color-surface-100: 203 213 225;
+  --color-surface-200: 148 163 184;
+  --color-surface-500: 71 85 105;
+  --color-surface-600: 51 65 85;
+  --color-surface-700: 30 45 66;
+  --color-surface-750: 23 34 51;
+  --color-surface-800: 30 41 59;
+  --color-surface-850: 22 32 50;
+  --color-surface-900: 15 23 42;
+  --color-surface-950: 10 15 29;
+  --color-text-primary: 241 245 249;
+  --color-text-secondary: 148 163 184;
+  --color-text-tertiary: 100 116 139;
+  color-scheme: dark;
+}
+
+:root.light {
+  /* Light theme — clean, warm whites */
+  --color-surface-50: 30 41 59;
+  --color-surface-100: 51 65 85;
+  --color-surface-200: 71 85 105;
+  --color-surface-500: 100 116 139;
+  --color-surface-600: 148 163 184;
+  --color-surface-700: 203 213 225;
+  --color-surface-750: 226 232 240;
+  --color-surface-800: 255 255 255;
+  --color-surface-850: 248 250 252;
+  --color-surface-900: 241 245 249;
+  --color-surface-950: 226 232 240;
+  --color-text-primary: 15 23 42;
+  --color-text-secondary: 71 85 105;
+  --color-text-tertiary: 100 116 139;
+  color-scheme: light;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+/* Subtle scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--color-surface-700));
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--color-surface-200));
+}
+
+@keyframes pulse-subtle {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.animate-pulse-subtle {
+  animation: pulse-subtle 2s ease-in-out infinite;
+}
+
+.text-gradient {
+  background: linear-gradient(135deg, #7c3aed, #a78bfa);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Input/select base styles */
+input, select, textarea {
+  background-color: rgb(var(--color-surface-850));
+  border-color: rgb(var(--color-surface-700) / 0.4);
+  color: rgb(var(--color-text-primary));
+}
+
+input:focus, select:focus, textarea:focus {
+  border-color: #7c3aed;
+  outline: none;
+}
+
+/* Card hover effect */
+.card-hover {
+  transition: all 0.15s ease;
+}
+.card-hover:hover {
+  border-color: rgb(var(--color-surface-200));
+  background-color: rgb(var(--color-surface-850));
+}

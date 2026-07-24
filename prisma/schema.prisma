@@ -1,0 +1,64 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model MusicTrack {
+  id           String   @id @default(cuid())
+  taskId       String   @unique
+  title        String?
+  lyrics       String?
+  prompt       String?
+  style        String?
+  model        String   @default("suno")
+  mode         String   @default("custom")
+  status       String   @default("submitted")
+  audioUrl     String?
+  videoUrl     String?
+  imageUrl     String?
+  duration     Float?
+  tags         String?
+  params       String?
+  errorMessage String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  parentId     String?
+  parent       MusicTrack?  @relation("TrackDerivation", fields: [parentId], references: [id])
+  children     MusicTrack[] @relation("TrackDerivation")
+
+  stems        StemTrack[]
+
+  @@index([status])
+  @@index([createdAt])
+  @@index([model])
+}
+
+model StemTrack {
+  id           String   @id @default(cuid())
+  musicTrackId String
+  musicTrack   MusicTrack @relation(fields: [musicTrackId], references: [id], onDelete: Cascade)
+  stemType     String
+  audioUrl     String?
+  title        String?
+  duration     Float?
+  createdAt    DateTime @default(now())
+
+  @@index([musicTrackId])
+}
+
+model ProviderConfig {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  apiKey      String   @default("")
+  baseUrl     String   @default("")
+  displayName String
+  isActive    Boolean  @default(true)
+  useTunnel   Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
