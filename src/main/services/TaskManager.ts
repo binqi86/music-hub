@@ -29,7 +29,7 @@ export class TaskManager {
       try {
         const status = await task.provider.getTaskStatus(task.taskId);
 
-        await prisma.musicTrack.update({
+        await prisma.musicTrack.updateMany({
           where: { taskId: task.taskId },
           data: { status: status.status },
         }).catch(() => {});
@@ -49,7 +49,7 @@ export class TaskManager {
         } else if (status.status === 'failed') {
           this.stopPolling(task.taskId);
           const errMsg = status.error?.message || 'Task failed';
-          await prisma.musicTrack.update({
+          await prisma.musicTrack.updateMany({
             where: { taskId: task.taskId },
             data: { status: 'failed', errorMessage: errMsg },
           }).catch(() => {});

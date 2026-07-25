@@ -41,23 +41,60 @@ export class MusicService {
   }
 
   private async handleResult(taskId: string, result: TaskResult) {
-    if (!result.result?.music?.[0]) return;
+    if (!result.result?.music?.length) return;
 
-    const music = result.result.music[0];
-
-    await prisma.musicTrack.update({
+    // Find the original track record (earliest created for this taskId)
+    const original = await prisma.musicTrack.findFirst({
       where: { taskId },
-      data: {
-        status: 'completed',
-        title: music.title || null,
-        audioUrl: music.audio_url || null,
-        videoUrl: music.video_url || null,
-        imageUrl: music.image_url || music.image_large_url || null,
-        lyrics: music.lyrics || null,
-        duration: music.duration || null,
-        tags: music.tags ? JSON.stringify(music.tags) : null,
-      },
+      orderBy: { createdAt: 'asc' },
     });
+
+    // First song: update the original MusicTrack record
+    const firstMusic = result.result.music.find(m => m.audio_url);
+    if (firstMusic && original) {
+      await prisma.musicTrack.update({
+        where: { id: original.id },
+        data: {
+          status: 'completed',
+          title: firstMusic.title || null,
+          audioUrl: firstMusic.audio_url || null,
+          videoUrl: firstMusic.video_url || null,
+          imageUrl: firstMusic.image_url || firstMusic.image_large_url || null,
+          lyrics: firstMusic.lyrics || null,
+          duration: firstMusic.duration || null,
+          tags: firstMusic.tags ? JSON.stringify(firstMusic.tags) : null,
+        },
+      });
+    } else {
+      await prisma.musicTrack.updateMany({
+        where: { taskId },
+        data: { status: 'completed' },
+      });
+    }
+
+    // Extra songs: create additional MusicTrack records
+    for (const m of result.result.music) {
+      if (!m.audio_url) continue;
+      if (firstMusic && m === firstMusic) continue; // skip the first one (already updated)
+
+      await prisma.musicTrack.create({
+        data: {
+          taskId,
+          model: original?.model || 'suno',
+          mode: original?.mode || 'generation',
+          status: 'completed',
+          title: m.title || null,
+          audioUrl: m.audio_url || null,
+          videoUrl: m.video_url || null,
+          imageUrl: m.image_url || m.image_large_url || null,
+          lyrics: m.lyrics || null,
+          duration: m.duration || null,
+          tags: m.tags ? JSON.stringify(m.tags) : null,
+          prompt: original?.prompt || null,
+          params: original?.params || null,
+        },
+      });
+    }
   }
 
   async submitGeneration(params: GenerationParams): Promise<{ taskId: string; id: string }> {
@@ -100,7 +137,7 @@ export class MusicService {
 
     const submitResult = await provider.cover!(params);
 
-    const parentTrack = await prisma.musicTrack.findUnique({ where: { taskId: params.taskId } });
+    const parentTrack = await prisma.musicTrack.findFirst({ where: { taskId: params.taskId } });
 
     await prisma.musicTrack.create({
       data: {
@@ -136,7 +173,7 @@ export class MusicService {
 
     const submitResult = await provider.extend!(params);
 
-    const parentTrack = await prisma.musicTrack.findUnique({ where: { taskId: params.taskId } });
+    const parentTrack = await prisma.musicTrack.findFirst({ where: { taskId: params.taskId } });
 
     await prisma.musicTrack.create({
       data: {
@@ -171,7 +208,7 @@ export class MusicService {
 
     const submitResult = await provider.separateStems!(params);
 
-    const parentTrack = await prisma.musicTrack.findUnique({ where: { taskId: params.taskId } });
+    const parentTrack = await prisma.musicTrack.findFirst({ where: { taskId: params.taskId } });
 
     await prisma.musicTrack.create({
       data: {
@@ -205,7 +242,7 @@ export class MusicService {
 
     const submitResult = await provider.generateMV!(params);
 
-    const parentTrack = await prisma.musicTrack.findUnique({ where: { taskId: params.taskId } });
+    const parentTrack = await prisma.musicTrack.findFirst({ where: { taskId: params.taskId } });
 
     await prisma.musicTrack.create({
       data: {
@@ -234,7 +271,7 @@ export class MusicService {
 
   async getTaskStatus(taskId: string): Promise<TaskResult> {
     // Try to find the track in DB to know which provider
-    const track = await prisma.musicTrack.findUnique({ where: { taskId } });
+    const track = await prisma.musicTrack.findFirst({ where: { taskId } });
     const provider = this.getProvider(track?.model || 'suno');
     return provider.getTaskStatus(taskId);
   }

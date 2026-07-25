@@ -25,7 +25,6 @@ function createWindow() {
 
   if (process.env.NODE_ENV === 'development') {
     mainWindow.loadURL('http://localhost:5173');
-    mainWindow.webContents.openDevTools();
   } else {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
   }
@@ -37,8 +36,8 @@ async function seedDefaultProvider() {
     await prisma.providerConfig.create({
       data: {
         name: 'apimart',
-        apiKey: process.env.APIMART_API_KEY || '',
-        baseUrl: process.env.APIMART_BASE_URL || 'https://api.apimart.ai',
+        apiKey: '',
+        baseUrl: 'https://api.apimart.ai',
         displayName: 'APIMart',
         isActive: true,
       },

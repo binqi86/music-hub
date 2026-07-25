@@ -1,5 +1,5 @@
-let BASE_URL = process.env.APIMART_BASE_URL || 'https://api.apimart.ai';
-let API_KEY = process.env.APIMART_API_KEY || '';
+let BASE_URL = 'https://api.apimart.ai';
+let API_KEY = '';
 
 export function configureProvider(config: { apiKey: string; baseUrl: string }) {
   BASE_URL = config.baseUrl;

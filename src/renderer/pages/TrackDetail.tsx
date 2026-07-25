@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ArrowLeft, Download, Music, Wand2, Scissors, Layers, Video, Play, Pause } from 'lucide-react';
+import { ArrowLeft, Download, Music, Wand2, Scissors, Video, Play, Pause } from 'lucide-react';
 import { Card } from '../components/ui/Card';
 import { StyleTagPicker } from '../components/ui/StyleTagPicker';
 import { Button } from '../components/ui/Button';
@@ -7,7 +7,7 @@ import { Badge } from '../components/ui/Badge';
 import { Spinner } from '../components/ui/Spinner';
 import { Modal } from '../components/ui/Modal';
 import { usePlayerStore } from '../stores/player-store';
-import { getTrack, generateCover, generateExtend, separateStems, generateMV, downloadFile } from '../lib/electron-api';
+import { getTrack, generateCover, generateExtend, separateStems, downloadFile } from '../lib/electron-api';
 import { formatDuration, getModelLabel, getModeLabel } from '../lib/utils';
 import type { MusicTrackData, StemTrackData } from '../../shared/types';
 import type { Page, PageParams } from '../App';
@@ -90,18 +90,6 @@ export function TrackDetail({ trackId, onNavigate }: TrackDetailProps) {
     setActionLoading(false);
   };
 
-  const handleMV = async () => {
-    if (!track) return;
-    setActionLoading(true);
-    try {
-      await generateMV({ taskId: track.taskId });
-      setActionModal(null);
-    } catch (err) {
-      alert('MV 生成失败');
-    }
-    setActionLoading(false);
-  };
-
   if (loading) {
     return (
       <div className="flex justify-center py-20">
@@ -136,7 +124,7 @@ export function TrackDetail({ trackId, onNavigate }: TrackDetailProps) {
 
       {/* Track header */}
       <div className="flex gap-6 mb-8">
-        <div className="w-48 h-48 rounded-xl bg-surface-700 flex-shrink-0 overflow-hidden">
+        <div className="w-48 h-48 rounded-xl bg-surface-700 flex-shrink-0 overflow-hidden relative group cursor-pointer" onClick={() => play(track)}>
           {track.imageUrl ? (
             <img src={track.imageUrl} alt="" className="w-full h-full object-cover" />
           ) : (
@@ -144,6 +132,16 @@ export function TrackDetail({ trackId, onNavigate }: TrackDetailProps) {
               <Music className="w-12 h-12 text-theme-tertiary" />
             </div>
           )}
+          {/* Play overlay */}
+          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all flex items-center justify-center">
+            <div className="w-14 h-14 rounded-full bg-brand-500/90 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all shadow-lg shadow-black/30">
+              {isPlayingThis ? (
+                <Pause className="w-6 h-6 text-white" />
+              ) : (
+                <Play className="w-6 h-6 text-white ml-0.5" />
+              )}
+            </div>
+          </div>
         </div>
 
         <div className="flex-1">
@@ -166,7 +164,7 @@ export function TrackDetail({ trackId, onNavigate }: TrackDetailProps) {
       </div>
 
       {/* Action buttons */}
-      <div className="grid grid-cols-5 gap-3 mb-8">
+      <div className="grid grid-cols-3 gap-3 mb-8">
         <Button variant="secondary" className="flex-col py-4 h-auto" onClick={handleDownload} disabled={!track.audioUrl}>
           <Download className="w-5 h-5" />
           <span className="text-xs">下载</span>
@@ -178,14 +176,6 @@ export function TrackDetail({ trackId, onNavigate }: TrackDetailProps) {
         <Button variant="secondary" className="flex-col py-4 h-auto" onClick={() => setActionModal('extend')}>
           <Scissors className="w-5 h-5" />
           <span className="text-xs">续写</span>
-        </Button>
-        <Button variant="secondary" className="flex-col py-4 h-auto" onClick={() => setActionModal('stems')}>
-          <Layers className="w-5 h-5" />
-          <span className="text-xs">分离音轨</span>
-        </Button>
-        <Button variant="secondary" className="flex-col py-4 h-auto" onClick={() => setActionModal('mv')}>
-          <Video className="w-5 h-5" />
-          <span className="text-xs">生成 MV</span>
         </Button>
       </div>
 
@@ -301,17 +291,6 @@ export function TrackDetail({ trackId, onNavigate }: TrackDetailProps) {
         <p className="text-sm text-theme-secondary mb-4">将歌曲分离为人声和伴奏音轨</p>
         <Button className="w-full" loading={actionLoading} onClick={handleStems}>
           开始分离
-        </Button>
-      </Modal>
-
-      <Modal
-        open={actionModal === 'mv'}
-        onClose={() => setActionModal(null)}
-        title="生成 MV"
-      >
-        <p className="text-sm text-theme-secondary mb-4">为这首歌生成音乐视频</p>
-        <Button className="w-full" loading={actionLoading} onClick={handleMV}>
-          开始生成
         </Button>
       </Modal>
     </div>

@@ -1,5 +1,6 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { clsx } from 'clsx';
+import { Plus } from 'lucide-react';
 
 // English tag values (sent to API) mapped to Chinese display labels
 const TAG_LABELS: Record<string, string> = {
@@ -32,7 +33,7 @@ const TAG_LABELS: Record<string, string> = {
   'Breathy vocal': '气声', 'Raspy vocal': '沙哑', 'Falsetto': '假声',
   'Belting': '高亢', 'Whisper': '低语', 'Spoken word': '念白',
   'Rap vocal': '说唱', 'Vocal harmony': '和声', 'Choir': '合唱',
-  'Call and response': '呼应',
+  'Call and response': '呼应', 'Chinese opera vocal': '中式戏腔',
 
   // Instrument
   'Piano': '钢琴', 'Soft piano': '轻柔钢琴', 'Electric piano': '电钢琴',
@@ -88,7 +89,7 @@ export const TAG_CATEGORIES: Record<string, string[]> = {
     'Male vocal', 'Female vocal', 'Male and female duet', 'Duet',
     'Soft vocal', 'Powerful vocal', 'Breathy vocal', 'Raspy vocal',
     'Falsetto', 'Belting', 'Whisper', 'Spoken word', 'Rap vocal',
-    'Vocal harmony', 'Choir', 'Call and response',
+    'Vocal harmony', 'Choir', 'Call and response', 'Chinese opera vocal',
   ],
   Instrument: [
     'Piano', 'Soft piano', 'Electric piano', 'Rhodes', 'Synth', 'Synth pad',
@@ -129,6 +130,8 @@ interface StyleTagPickerProps {
 export function StyleTagPicker({ value, onChange, maxTags = 8, compact = false }: StyleTagPickerProps) {
   const categories = Object.keys(TAG_CATEGORIES);
   const [activeCategory, setActiveCategory] = useState(categories[0]);
+  const [customInput, setCustomInput] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const selectedSet = useMemo(() => {
     return new Set(value.split(',').map((s) => s.trim()).filter(Boolean));
@@ -143,6 +146,18 @@ export function StyleTagPicker({ value, onChange, maxTags = 8, compact = false }
       next.add(tag);
     }
     onChange(Array.from(next).join(', '));
+  };
+
+  const addCustomTag = () => {
+    const tag = customInput.trim();
+    if (!tag) return;
+    const next = new Set(selectedSet);
+    if (next.has(tag)) return;
+    if (next.size >= maxTags) return;
+    next.add(tag);
+    onChange(Array.from(next).join(', '));
+    setCustomInput('');
+    inputRef.current?.focus();
   };
 
   const currentTags = TAG_CATEGORIES[activeCategory] || [];
@@ -195,6 +210,33 @@ export function StyleTagPicker({ value, onChange, maxTags = 8, compact = false }
           })}
         </div>
       )}
+
+      {/* Custom tag input */}
+      <div className="flex items-center gap-2">
+        <input
+          ref={inputRef}
+          type="text"
+          value={customInput}
+          onChange={(e) => setCustomInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              addCustomTag();
+            }
+          }}
+          placeholder="自定义曲风（建议用英文），按 Enter 添加..."
+          disabled={selectedSet.size >= maxTags}
+          className="flex-1 bg-surface-900 border border-surface-700 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:border-brand-500 disabled:opacity-40"
+        />
+        <button
+          type="button"
+          onClick={addCustomTag}
+          disabled={!customInput.trim() || selectedSet.size >= maxTags}
+          className="p-1.5 rounded-md bg-brand-600 text-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-brand-500 transition-colors"
+        >
+          <Plus className="w-3.5 h-3.5" />
+        </button>
+      </div>
 
       {/* Selected tags preview */}
       {selectedSet.size > 0 && (

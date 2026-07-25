@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Sparkles, Music, Mic, Upload, Settings, X, Check, Loader, Wand2 } from 'lucide-react';
+import { Sparkles, Music, Mic, Upload, Settings, X, Check, Loader, Wand2, Search } from 'lucide-react';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
@@ -13,6 +13,7 @@ interface GenerationFormData {
   model: 'suno' | 'flowmusic';
   mode: 'inspiration' | 'custom' | 'cover';
   prompt: string;
+  soundPrompt: string;
   lyrics: string;
   style: string;
   title: string;
@@ -22,12 +23,14 @@ interface GenerationFormData {
   language: string;
   duration: number;
   bpm: string;
+  length: number;
 }
 
 const initialForm: GenerationFormData = {
   model: 'suno',
   mode: 'inspiration',
   prompt: '',
+  soundPrompt: '',
   lyrics: '',
   style: '',
   title: '',
@@ -37,6 +40,7 @@ const initialForm: GenerationFormData = {
   language: '',
   duration: 0,
   bpm: '',
+  length: 60,
 };
 
 export function Generate() {
@@ -45,16 +49,17 @@ export function Generate() {
   const [error, setError] = useState<string | null>(null);
   const [coverSourceId, setCoverSourceId] = useState('');
   const [libraryTracks, setLibraryTracks] = useState<MusicTrackData[]>([]);
+  const [coverSearch, setCoverSearch] = useState('');
   const { activeTasks, addTask, updateTask, removeTask } = useGenerationStore();
 
   // Load library tracks for cover mode
   useEffect(() => {
     if (form.mode === 'cover') {
-      getLibrary({ pageSize: 20, status: 'completed' })
+      getLibrary({ pageSize: 50, status: 'completed', search: coverSearch || undefined })
         .then((result) => setLibraryTracks(result.tracks))
         .catch(() => {});
     }
-  }, [form.mode]);
+  }, [form.mode, coverSearch]);
 
   const updateField = <K extends keyof GenerationFormData>(
     key: K,
@@ -82,12 +87,23 @@ export function Generate() {
         setError('请选择源歌曲或上传音频文件');
         return;
       }
-    } else if (form.mode === 'inspiration' && !form.prompt.trim()) {
-      setError('请输入音乐描述');
-      return;
-    } else if (form.mode === 'custom' && !form.lyrics.trim() && !form.instrumental) {
-      setError('请输入歌词或开启纯音乐模式');
-      return;
+    } else if (form.model === 'suno') {
+      if (form.mode === 'inspiration' && !form.prompt.trim()) {
+        setError('请输入音乐描述');
+        return;
+      } else if (form.mode === 'custom' && !form.lyrics.trim() && !form.instrumental) {
+        setError('请输入歌词或开启纯音乐模式');
+        return;
+      }
+    } else {
+      // Flow Music
+      if (form.mode === 'inspiration' && !form.soundPrompt.trim()) {
+        setError('请输入音乐风格描述');
+        return;
+      } else if (form.mode === 'custom' && !form.lyrics.trim() && !form.soundPrompt.trim()) {
+        setError('歌词和风格描述至少填一项');
+        return;
+      }
     }
 
     setSubmitting(true);
@@ -107,7 +123,7 @@ export function Generate() {
           vocalGender: form.vocalGender || undefined,
           model: form.model,
         });
-      } else {
+      } else if (form.model === 'suno') {
         result = await generateMusic({
           model: form.model,
           prompt: form.mode === 'inspiration' ? form.prompt : undefined,
@@ -118,6 +134,22 @@ export function Generate() {
           custom: form.mode === 'custom',
           version: form.version,
           vocalGender: form.vocalGender || undefined,
+        });
+      } else {
+        // Flow Music
+        // Combine style tags into sound_prompt
+        let flowPrompt = form.soundPrompt || '';
+        if (form.style) {
+          flowPrompt = flowPrompt
+            ? `${flowPrompt}, ${form.style}`
+            : form.style;
+        }
+        result = await generateMusic({
+          model: form.model,
+          soundPrompt: flowPrompt || undefined,
+          lyrics: form.mode === 'custom' ? form.lyrics : undefined,
+          title: form.title || undefined,
+          length: form.length || undefined,
         });
       }
 
@@ -212,20 +244,36 @@ export function Generate() {
         </div>
 
         {form.mode === 'inspiration' ? (
-          <div>
-            <label className="text-sm text-theme-secondary mb-2 block">音乐描述</label>
-            <textarea
-              value={form.prompt}
-              onChange={(e) => updateField('prompt', e.target.value)}
-              placeholder="写给谁、什么故事、什么情绪，一句话就能生成..."
-              className="w-full bg-surface-900 border border-surface-700 rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-brand-500 h-24 resize-none"
-              maxLength={500}
-            />
-            <p className="text-xs text-theme-tertiary mt-1 text-right">{form.prompt.length}/500</p>
-          </div>
+          form.model === 'suno' ? (
+            <div>
+              <label className="text-sm text-theme-secondary mb-2 block">音乐描述</label>
+              <textarea
+                value={form.prompt}
+                onChange={(e) => updateField('prompt', e.target.value)}
+                placeholder="写给谁、什么故事、什么情绪，一句话就能生成..."
+                className="w-full bg-surface-900 border border-surface-700 rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-brand-500 h-24 resize-none"
+                maxLength={500}
+              />
+              <p className="text-xs text-theme-tertiary mt-1 text-right">{form.prompt.length}/500</p>
+            </div>
+          ) : (
+            <div>
+              <label className="text-sm text-theme-secondary mb-2 block">音乐风格描述</label>
+              <textarea
+                value={form.soundPrompt}
+                onChange={(e) => updateField('soundPrompt', e.target.value)}
+                placeholder="描述想要的音乐风格，例如：upbeat pop music with piano"
+                className="w-full bg-surface-900 border border-surface-700 rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-brand-500 h-24 resize-none"
+                maxLength={500}
+              />
+              <p className="text-xs text-theme-tertiary mt-1 text-right">{form.soundPrompt.length}/500</p>
+            </div>
+          )
         ) : form.mode === 'custom' ? (
           <div>
-            <label className="text-sm text-theme-secondary mb-2 block">歌词</label>
+            <label className="text-sm text-theme-secondary mb-2 block">
+              {form.model === 'suno' ? '歌词' : '歌词'}
+            </label>
             <textarea
               value={form.lyrics}
               onChange={(e) => updateField('lyrics', e.target.value)}
@@ -254,9 +302,19 @@ export function Generate() {
             </div>
 
             {/* Library tracks */}
-            {libraryTracks.length > 0 && (
-              <div>
-                <label className="text-xs text-theme-secondary mb-1 block">从曲库选择:</label>
+            <div>
+              <label className="text-xs text-theme-secondary mb-1 block">从曲库选择:</label>
+              <div className="relative mb-2">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-theme-tertiary" />
+                <input
+                  type="text"
+                  value={coverSearch}
+                  onChange={(e) => setCoverSearch(e.target.value)}
+                  placeholder="搜索歌曲..."
+                  className="w-full bg-surface-900 border border-surface-700 rounded-lg pl-8 pr-3 py-1.5 text-xs focus:outline-none focus:border-brand-500"
+                />
+              </div>
+              {libraryTracks.length > 0 ? (
                 <div className="max-h-36 overflow-y-auto space-y-1 border border-surface-700 rounded-lg p-2">
                   {libraryTracks.map((track) => (
                     <button
@@ -272,8 +330,10 @@ export function Generate() {
                     </button>
                   ))}
                 </div>
-              </div>
-            )}
+              ) : (
+                <p className="text-xs text-theme-tertiary">无匹配结果</p>
+              )}
+            </div>
           </div>
         )}
       </Card>
@@ -283,6 +343,9 @@ export function Generate() {
         <Card className="p-6 mb-6">
           <label className="text-sm text-theme-secondary mb-3 block">曲风标签</label>
           <StyleTagPicker value={form.style} onChange={(v) => updateField('style', v)} />
+          {form.model === 'flowmusic' && (
+            <p className="text-xs text-theme-tertiary mt-2">曲风标签会自动合并到风格描述中</p>
+          )}
         </Card>
       )}
 
@@ -306,31 +369,35 @@ export function Generate() {
               className="w-full bg-surface-900 border border-surface-700 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-brand-500"
             />
           </div>
-          <div>
-            <label className="text-sm text-theme-secondary mb-2 block">语言</label>
-            <select
-              value={form.language}
-              onChange={(e) => updateField('language', e.target.value)}
-              className="w-full bg-surface-900 border border-surface-700 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-brand-500"
-            >
-              <option value="">自动</option>
-              <option value="Chinese">中文</option>
-              <option value="English">英文</option>
-              <option value="Japanese">日文</option>
-              <option value="Korean">韩文</option>
-              <option value="Cantonese">粤语</option>
-              <option value="Spanish">西班牙语</option>
-              <option value="Russian">俄语</option>
-              <option value="French">法语</option>
-              <option value="German">德语</option>
-              <option value="Portuguese">葡萄牙语</option>
-              <option value="Arabic">阿拉伯语</option>
-              <option value="Hindi">印地语</option>
-              <option value="Italian">意大利语</option>
-              <option value="Thai">泰语</option>
-              <option value="Vietnamese">越南语</option>
-            </select>
-          </div>
+          {form.model === 'suno' ? (
+            <div>
+              <label className="text-sm text-theme-secondary mb-2 block">语言</label>
+              <select
+                value={form.language}
+                onChange={(e) => updateField('language', e.target.value)}
+                className="w-full bg-surface-900 border border-surface-700 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-brand-500"
+              >
+                <option value="">自动</option>
+                <option value="Chinese">中文</option>
+                <option value="English">英文</option>
+                <option value="Japanese">日文</option>
+                <option value="Korean">韩文</option>
+                <option value="Cantonese">粤语</option>
+                <option value="Spanish">西班牙语</option>
+                <option value="Russian">俄语</option>
+                <option value="French">法语</option>
+                <option value="German">德语</option>
+                <option value="Portuguese">葡萄牙语</option>
+                <option value="Arabic">阿拉伯语</option>
+                <option value="Hindi">印地语</option>
+                <option value="Italian">意大利语</option>
+                <option value="Thai">泰语</option>
+                <option value="Vietnamese">越南语</option>
+              </select>
+            </div>
+          ) : (
+            <div /> // Flow Music 不需要 BPM
+          )}
         </div>
       </Card>
 
@@ -342,45 +409,60 @@ export function Generate() {
             高级选项
           </summary>
           <div className="mt-4 grid grid-cols-2 gap-4">
-            {form.model === 'suno' && (
-            <div>
-              <label className="text-sm text-theme-secondary mb-2 block">模型版本</label>
-              <select
-                value={form.version}
-                onChange={(e) => updateField('version', e.target.value)}
-                className="w-full bg-surface-900 border border-surface-700 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-brand-500"
-              >
-                <option value="v5.5">v5.5</option>
-                <option value="v5">v5</option>
-                <option value="v4.5">v4.5</option>
-                <option value="v4">v4</option>
-              </select>
-            </div>
+            {form.model === 'suno' ? (
+              <>
+                <div>
+                  <label className="text-sm text-theme-secondary mb-2 block">模型版本</label>
+                  <select
+                    value={form.version}
+                    onChange={(e) => updateField('version', e.target.value)}
+                    className="w-full bg-surface-900 border border-surface-700 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-brand-500"
+                  >
+                    <option value="v5.5">v5.5</option>
+                    <option value="v5">v5</option>
+                    <option value="v4.5">v4.5</option>
+                    <option value="v4">v4</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-sm text-theme-secondary mb-2 block">人声性别</label>
+                  <select
+                    value={form.vocalGender}
+                    onChange={(e) => updateField('vocalGender', e.target.value)}
+                    className="w-full bg-surface-900 border border-surface-700 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-brand-500"
+                  >
+                    <option value="">自动</option>
+                    <option value="Male">男声</option>
+                    <option value="Female">女声</option>
+                  </select>
+                </div>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    id="instrumental"
+                    checked={form.instrumental}
+                    onChange={(e) => updateField('instrumental', e.target.checked)}
+                    className="accent-brand-500"
+                  />
+                  <label htmlFor="instrumental" className="text-sm text-theme-secondary">
+                    纯音乐 (无歌词)
+                  </label>
+                </div>
+              </>
+            ) : (
+              <div>
+                <label className="text-sm text-theme-secondary mb-2 block">生成时长（秒）</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={240}
+                  value={form.length}
+                  onChange={(e) => updateField('length', parseInt(e.target.value) || 60)}
+                  className="w-full bg-surface-900 border border-surface-700 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-brand-500"
+                />
+                <p className="text-xs text-theme-tertiary mt-1">1 ~ 240 秒</p>
+              </div>
             )}
-            <div>
-              <label className="text-sm text-theme-secondary mb-2 block">人声性别</label>
-              <select
-                value={form.vocalGender}
-                onChange={(e) => updateField('vocalGender', e.target.value)}
-                className="w-full bg-surface-900 border border-surface-700 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-brand-500"
-              >
-                <option value="">自动</option>
-                <option value="Male">男声</option>
-                <option value="Female">女声</option>
-              </select>
-            </div>
-            <div className="flex items-center gap-3">
-              <input
-                type="checkbox"
-                id="instrumental"
-                checked={form.instrumental}
-                onChange={(e) => updateField('instrumental', e.target.checked)}
-                className="accent-brand-500"
-              />
-              <label htmlFor="instrumental" className="text-sm text-theme-secondary">
-                纯音乐 (无歌词)
-              </label>
-            </div>
           </div>
         </details>
       </Card>

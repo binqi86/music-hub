@@ -4,12 +4,12 @@ generator client {
 
 datasource db {
   provider = "sqlite"
-  url      = env("DATABASE_URL")
+  url      = "file:./dev.db"
 }
 
 model MusicTrack {
   id           String   @id @default(cuid())
-  taskId       String   @unique
+  taskId       String
   title        String?
   lyrics       String?
   prompt       String?

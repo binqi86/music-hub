@@ -36,10 +36,6 @@ AI 音乐创作桌面应用，集成 APIMart 提供的 Suno 和 Flow Music 音�
 ```bash
 # 安装依赖
 npm install
-
-# 复制环境变量
-cp .env.example .env
-# 编辑 .env 填入你的 APIMart API Key
 ```
 
 ### 开发
@@ -94,8 +90,4 @@ ProviderFactory.registerProvider('my-model', MyCustomProvider);
 
 ## 配置
 
-| 环境变量 | 说明 | 默认值 |
-|---------|------|--------|
-| `APIMART_API_KEY` | APIMart API 密钥 | - |
-| `APIMART_BASE_URL` | APIMart API 基础地址 | https://api.apimart.ai |
-| `DATABASE_URL` | SQLite 数据库路径 | file:./dev.db |
+API Key 和 Base URL 可在应用 Settings 页面中直接配置，无需编辑环境变量文件。

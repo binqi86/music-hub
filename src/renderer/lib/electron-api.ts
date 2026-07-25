@@ -1,6 +1,7 @@
 export async function generateMusic(params: {
   model?: string;
   prompt?: string;
+  soundPrompt?: string;
   lyrics?: string;
   style?: string;
   title?: string;
@@ -8,6 +9,8 @@ export async function generateMusic(params: {
   custom?: boolean;
   version?: string;
   vocalGender?: string;
+  bpm?: string;
+  length?: number;
 }) {
   return window.electronAPI.generateMusic(params);
 }
