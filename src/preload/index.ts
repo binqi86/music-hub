@@ -8,6 +8,7 @@ const electronAPI: ElectronAPI = {
   generateExtend: (params: ExtendParams) => ipcRenderer.invoke('music:extend', params),
   separateStems: (params: StemsParams) => ipcRenderer.invoke('music:stems', params),
   generateMV: (params: MVParams) => ipcRenderer.invoke('music:mv', params),
+  generateAlignedLyrics: (params: { taskId: string; audioIndex?: number }) => ipcRenderer.invoke('music:aligned-lyrics', params) as Promise<{ filtered: string; full: string }>,
   getTaskStatus: (taskId: string) => ipcRenderer.invoke('music:task-status', taskId),
   uploadAudio: () => ipcRenderer.invoke('music:upload-audio'),
 

@@ -57,6 +57,13 @@ export class SunoProvider implements MusicProvider {
             tags?: string;
             audio_id?: string;
           }>;
+          alignment?: Array<{
+            word: string;
+            start_s: number;
+            end_s: number;
+            p_align: number;
+            success: boolean;
+          }>;
         };
         error?: { message: string };
       };
@@ -80,6 +87,7 @@ export class SunoProvider implements MusicProvider {
           audio_id: m.audio_id,
         })),
       } : undefined,
+      rawAlignment: d.result?.alignment,
       error: d.error,
     };
   }

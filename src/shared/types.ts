@@ -135,6 +135,13 @@ export interface TaskResult {
       lyrics?: string;
     }>;
   };
+  rawAlignment?: Array<{
+    word: string;
+    start_s: number;
+    end_s: number;
+    p_align: number;
+    success: boolean;
+  }>;
   error?: {
     message: string;
   };
@@ -175,6 +182,7 @@ export interface ElectronAPI {
   generateExtend: (params: ExtendParams) => Promise<SubmitResponse>;
   separateStems: (params: StemsParams) => Promise<SubmitResponse>;
   generateMV: (params: MVParams) => Promise<SubmitResponse>;
+  generateAlignedLyrics: (params: { taskId: string; audioIndex?: number }) => Promise<{ filtered: string; full: string }>;
   getTaskStatus: (taskId: string) => Promise<TaskResult>;
 
   // Upload

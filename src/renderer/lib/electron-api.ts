@@ -56,6 +56,10 @@ export async function generateMV(params: {
   return window.electronAPI.generateMV(params);
 }
 
+export async function generateAlignedLyrics(params: { taskId: string; audioIndex?: number }): Promise<{ filtered: string; full: string }> {
+  return window.electronAPI.generateAlignedLyrics(params);
+}
+
 export async function getTaskStatus(taskId: string) {
   return window.electronAPI.getTaskStatus(taskId);
 }

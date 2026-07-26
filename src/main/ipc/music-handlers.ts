@@ -56,6 +56,14 @@ export function registerMusicHandlers(ipcMain: IpcMain, window: BrowserWindow | 
     }
   });
 
+  ipcMain.handle('music:aligned-lyrics', async (_event, params: { taskId: string; audioIndex?: number }) => {
+    try {
+      return await musicService.generateAlignedLyrics(params);
+    } catch (error) {
+      throw new Error(error instanceof Error ? error.message : 'Aligned lyrics failed');
+    }
+  });
+
   ipcMain.handle('music:upload-audio', async () => {
     const win = window || BrowserWindow.getAllWindows()[0];
     if (!win) throw new Error('No window available');

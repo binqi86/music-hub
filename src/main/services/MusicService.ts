@@ -276,6 +276,140 @@ export class MusicService {
     return provider.getTaskStatus(taskId);
   }
 
+  async generateAlignedLyrics(params: { taskId: string; audioIndex?: number }): Promise<{ filtered: string; full: string }> {
+    await this.loadActiveConfig();
+    const provider = this.getProvider('suno');
+    const submitResult = await provider.alignedLyrics!({ taskId: params.taskId, audioIndex: params.audioIndex ?? 1 });
+
+    // Fetch original lyrics from DB
+    const originalTrack = await prisma.musicTrack.findFirst({
+      where: { taskId: params.taskId },
+      orderBy: { createdAt: 'asc' },
+    });
+    const originalLyricsText = originalTrack?.prompt || originalTrack?.lyrics || '';
+
+    // Poll synchronously until completed
+    const alignedTaskId = submitResult.taskId;
+    const maxAttempts = 60;
+    for (let i = 0; i < maxAttempts; i++) {
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      const status = await provider.getTaskStatus(alignedTaskId);
+
+      if (status.status === 'completed') {
+        let fullLrc = '';
+        let filteredLrc = '';
+
+        if (status.rawAlignment && status.rawAlignment.length > 0) {
+          // Build lines from alignment data (preserving raw text)
+          const alignedLines: { time: number; text: string }[] = [];
+          let currentLine = '';
+          let lineStartTime = 0;
+
+          for (const item of status.rawAlignment) {
+            const word = item.word;
+            if (word.includes('\n')) {
+              const parts = word.split('\n');
+              for (let p = 0; p < parts.length; p++) {
+                if (parts[p]) currentLine += parts[p];
+                if (p < parts.length - 1) {
+                  if (currentLine.trim()) {
+                    alignedLines.push({ time: lineStartTime, text: currentLine.trim() });
+                  }
+                  currentLine = '';
+                  lineStartTime = item.start_s;
+                }
+              }
+            } else {
+              if (!currentLine) lineStartTime = item.start_s;
+              currentLine += word;
+            }
+          }
+          if (currentLine.trim()) {
+            alignedLines.push({ time: lineStartTime, text: currentLine.trim() });
+          }
+
+          // Full version: use original lyrics lines with timestamps from alignment
+          if (originalLyricsText) {
+            const origLines = originalLyricsText.split('\n').filter(l => l.trim());
+            let alignIdx = 0;
+            const lrcLines: string[] = [];
+
+            for (const origLine of origLines) {
+              const trimmed = origLine.trim();
+              if (!trimmed) continue;
+
+              // Find matching alignment line
+              let bestTime = alignedLines[alignIdx]?.time ?? 0;
+              // Try to match by looking for the first few chars of origLine in alignedLines
+              const searchStr = trimmed.replace(/[\[\]]/g, '').slice(0, 10).trim();
+              for (let j = alignIdx; j < alignedLines.length; j++) {
+                const alignedClean = alignedLines[j].text.replace(/[\[\]]/g, '').trim();
+                if (alignedClean.startsWith(searchStr) || searchStr.startsWith(alignedClean.slice(0, 10))) {
+                  bestTime = alignedLines[j].time;
+                  alignIdx = j + 1;
+                  break;
+                }
+              }
+
+              const min = Math.floor(bestTime / 60);
+              const sec = bestTime % 60;
+              const timeStr = `${String(min).padStart(2, '0')}:${sec.toFixed(2).padStart(5, '0')}`;
+              lrcLines.push(`[${timeStr}]${trimmed}`);
+            }
+            fullLrc = lrcLines.join('\n');
+          } else {
+            // Fallback: use raw alignment lines
+            fullLrc = alignedLines
+              .map(l => {
+                const min = Math.floor(l.time / 60);
+                const sec = l.time % 60;
+                const timeStr = `${String(min).padStart(2, '0')}:${sec.toFixed(2).padStart(5, '0')}`;
+                return `[${timeStr}]${l.text}`;
+              })
+              .join('\n');
+          }
+
+          // Filtered version: remove style/prompt lines
+          const filteredLines = alignedLines.filter(l => {
+            const text = l.text.replace(/\[.*?\]/g, '').trim();
+            if (!text) return false;
+            if (/style\s*tag/i.test(text)) return false;
+            // Check if line matches original lyrics
+            if (originalLyricsText) {
+              const cleanOriginal = originalLyricsText.replace(/\[.*?\]/g, '').replace(/Style\s*tag:.*/gi, '');
+              const lineWords = text.split(/[\s,]+/).filter(w => w.length > 0);
+              if (lineWords.length === 0) return false;
+              const matchingWords = lineWords.filter(w => cleanOriginal.includes(w));
+              return matchingWords.length / lineWords.length >= 0.3;
+            }
+            return true;
+          });
+
+          filteredLrc = filteredLines
+            .map(l => {
+              const min = Math.floor(l.time / 60);
+              const sec = l.time % 60;
+              const timeStr = `${String(min).padStart(2, '0')}:${sec.toFixed(2).padStart(5, '0')}`;
+              return `[${timeStr}]${l.text}`;
+            })
+            .join('\n');
+        } else if (status.result?.music?.[0]?.lyrics) {
+          fullLrc = status.result.music[0].lyrics;
+          filteredLrc = fullLrc;
+        }
+
+        // Don't save to DB - keep original lyrics in the detail page unchanged
+        return { filtered: filteredLrc, full: fullLrc };
+      }
+
+      if (status.status === 'failed') {
+        throw new Error(status.error?.message || '歌词时间轴生成失败');
+      }
+    }
+
+    throw new Error('歌词时间轴生成超时');
+  }
+
   async submitUpload(audioUrl: string): Promise<{ taskId: string }> {
     await this.loadActiveConfig();
     // Use Suno upload endpoint by default

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ArrowLeft, Download, Music, Wand2, Scissors, Video, Play, Pause } from 'lucide-react';
+import { ArrowLeft, Download, Music, Wand2, Scissors, Video, Play, Pause, FileText } from 'lucide-react';
 import { Card } from '../components/ui/Card';
 import { StyleTagPicker } from '../components/ui/StyleTagPicker';
 import { Button } from '../components/ui/Button';
@@ -7,7 +7,7 @@ import { Badge } from '../components/ui/Badge';
 import { Spinner } from '../components/ui/Spinner';
 import { Modal } from '../components/ui/Modal';
 import { usePlayerStore } from '../stores/player-store';
-import { getTrack, generateCover, generateExtend, separateStems, downloadFile } from '../lib/electron-api';
+import { getTrack, generateCover, generateExtend, separateStems, generateAlignedLyrics, downloadFile } from '../lib/electron-api';
 import { formatDuration, getModelLabel, getModeLabel } from '../lib/utils';
 import type { MusicTrackData, StemTrackData } from '../../shared/types';
 import type { Page, PageParams } from '../App';
@@ -22,6 +22,7 @@ export function TrackDetail({ trackId, onNavigate }: TrackDetailProps) {
   const [loading, setLoading] = useState(true);
   const [actionModal, setActionModal] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
+  const [alignedLyricsLoading, setAlignedLyricsLoading] = useState(false);
   const [coverStyle, setCoverStyle] = useState('');
   const [extendPrompt, setExtendPrompt] = useState('');
   const { play, currentTrack, isPlaying, togglePlay } = usePlayerStore();
@@ -88,6 +89,34 @@ export function TrackDetail({ trackId, onNavigate }: TrackDetailProps) {
       alert('音轨分离失败');
     }
     setActionLoading(false);
+  };
+
+  const handleAlignedLyrics = async (mode: 'filtered' | 'full') => {
+    if (!track) return;
+    setAlignedLyricsLoading(true);
+    setActionModal(null);
+    try {
+      const result = await generateAlignedLyrics({ taskId: track.taskId });
+      const lrcText = result[mode];
+      if (!lrcText) {
+        alert('未能获取到歌词时间轴');
+        return;
+      }
+      const suffix = mode === 'filtered' ? '（仅歌词）' : '（含标记）';
+      const filename = `${track.title || 'lyrics'}${suffix}.lrc`;
+      const blob = new Blob([lrcText], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : '生成歌词时间轴失败');
+    }
+    setAlignedLyricsLoading(false);
   };
 
   if (loading) {
@@ -164,7 +193,7 @@ export function TrackDetail({ trackId, onNavigate }: TrackDetailProps) {
       </div>
 
       {/* Action buttons */}
-      <div className="grid grid-cols-3 gap-3 mb-8">
+      <div className={`grid ${track.model === 'suno' ? 'grid-cols-4' : 'grid-cols-3'} gap-3 mb-8`}>
         <Button variant="secondary" className="flex-col py-4 h-auto" onClick={handleDownload} disabled={!track.audioUrl}>
           <Download className="w-5 h-5" />
           <span className="text-xs">下载</span>
@@ -177,6 +206,12 @@ export function TrackDetail({ trackId, onNavigate }: TrackDetailProps) {
           <Scissors className="w-5 h-5" />
           <span className="text-xs">续写</span>
         </Button>
+        {track.model === 'suno' && (
+          <Button variant="secondary" className="flex-col py-4 h-auto" onClick={() => setActionModal('aligned-lyrics')}>
+            <FileText className="w-5 h-5" />
+            <span className="text-xs">歌词时间轴</span>
+          </Button>
+        )}
       </div>
 
       {/* Lyrics */}
@@ -292,6 +327,24 @@ export function TrackDetail({ trackId, onNavigate }: TrackDetailProps) {
         <Button className="w-full" loading={actionLoading} onClick={handleStems}>
           开始分离
         </Button>
+      </Modal>
+
+      <Modal
+        open={actionModal === 'aligned-lyrics'}
+        onClose={() => setActionModal(null)}
+        title="歌词时间轴"
+      >
+        <p className="text-sm text-theme-secondary mb-4">选择要下载的 LRC 版本</p>
+        <div className="space-y-3">
+          <Button className="w-full" loading={alignedLyricsLoading} onClick={() => handleAlignedLyrics('filtered')}>
+            <FileText className="w-4 h-4" />
+            仅歌词（过滤非歌词标记）
+          </Button>
+          <Button variant="secondary" className="w-full" loading={alignedLyricsLoading} onClick={() => handleAlignedLyrics('full')}>
+            <FileText className="w-4 h-4" />
+            含全部标记（含 Style tag 等）
+          </Button>
+        </div>
       </Modal>
     </div>
   );
