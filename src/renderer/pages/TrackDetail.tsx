@@ -7,7 +7,7 @@ import { Badge } from '../components/ui/Badge';
 import { Spinner } from '../components/ui/Spinner';
 import { Modal } from '../components/ui/Modal';
 import { usePlayerStore } from '../stores/player-store';
-import { getTrack, generateCover, generateExtend, separateStems, generateAlignedLyrics, downloadFile } from '../lib/electron-api';
+import { getTrack, generateCover, generateExtend, separateStems, generateAlignedLyrics, downloadFile, copyLocalFile } from '../lib/electron-api';
 import { formatDuration, getModelLabel, getModeLabel } from '../lib/utils';
 import type { MusicTrackData, StemTrackData } from '../../shared/types';
 import type { Page, PageParams } from '../App';
@@ -38,7 +38,9 @@ export function TrackDetail({ trackId, onNavigate }: TrackDetailProps) {
     if (!track?.audioUrl) return;
     const filename = `${track.title || 'music'}.mp3`;
     try {
-      const path = await downloadFile(track.audioUrl, filename);
+      const path = track.localAudioUrl
+        ? await copyLocalFile(track.localAudioUrl, filename)
+        : await downloadFile(track.audioUrl, filename);
       alert(`下载完成: ${path}`);
     } catch (err) {
       alert('下载失败');
@@ -49,10 +51,11 @@ export function TrackDetail({ trackId, onNavigate }: TrackDetailProps) {
     if (!track) return;
     setActionLoading(true);
     try {
+      const apiStyle = coverStyle.replace(/\|\|\|/g, ', ');
       await generateCover({
         taskId: track.taskId,
-        tags: coverStyle,
-        gptDescription: coverStyle,
+        tags: apiStyle,
+        gptDescription: apiStyle,
       });
       setActionModal(null);
       setCoverStyle('');

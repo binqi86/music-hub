@@ -108,7 +108,7 @@ export function Generate() {
 
     setSubmitting(true);
     try {
-      let styleWithLang = form.style;
+      let styleWithLang = form.style.replace(/\|\|\|/g, ', ');
       if (form.language) {
         styleWithLang = styleWithLang ? `${form.language}, ${styleWithLang}` : form.language;
       }

@@ -1,12 +1,21 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, protocol, net } from 'electron';
 import path from 'path';
 import { prisma } from './lib/prisma';
 import { registerMusicHandlers } from './ipc/music-handlers';
 import { registerLibraryHandlers } from './ipc/library-handlers';
 import { registerFileHandlers } from './ipc/file-handlers';
 import { registerProviderHandlers } from './ipc/provider-handlers';
+import { getMusicStoragePath } from './utils/music-storage';
 
 let mainWindow: BrowserWindow | null = null;
+
+// Register custom protocol scheme before app ready
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'local-music',
+    privileges: { stream: true, supportFetchAPI: true, bypassCSP: true },
+  },
+]);
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -47,6 +56,19 @@ async function seedDefaultProvider() {
 }
 
 app.whenReady().then(async () => {
+  // Ensure music storage directory exists
+  getMusicStoragePath();
+
+  // Register custom protocol handler for serving local music files
+  protocol.handle('local-music', (request) => {
+    const url = new URL(request.url);
+    const musicStoragePath = getMusicStoragePath();
+    // local-music:///encoded-filename.mp3 → pathname is "/encoded-filename.mp3"
+    const filename = decodeURIComponent(url.pathname.slice(1));
+    const filePath = path.join(musicStoragePath, filename);
+    return net.fetch('file://' + filePath);
+  });
+
   await seedDefaultProvider();
   createWindow();
   registerMusicHandlers(ipcMain, mainWindow);

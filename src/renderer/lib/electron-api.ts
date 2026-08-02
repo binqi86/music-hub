@@ -87,6 +87,10 @@ export async function downloadFile(url: string, filename: string) {
   return window.electronAPI.downloadFile(url, filename);
 }
 
+export async function copyLocalFile(localAudioUrl: string, outputFilename: string) {
+  return window.electronAPI.copyLocalFile(localAudioUrl, outputFilename);
+}
+
 export async function uploadAudio() {
   return window.electronAPI.uploadAudio();
 }

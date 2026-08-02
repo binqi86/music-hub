@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma';
+import { deleteLocalFileByUrl } from '../utils/music-storage';
 import type { LibraryFilter, LibraryResult, MusicTrackData } from '../../shared/types';
 
 export class LibraryService {
@@ -95,6 +96,11 @@ export class LibraryService {
   }
 
   async delete(id: string): Promise<void> {
+    // Clean up local audio file if it exists
+    const track = await prisma.musicTrack.findUnique({ where: { id }, select: { localAudioUrl: true } });
+    if (track?.localAudioUrl) {
+      deleteLocalFileByUrl(track.localAudioUrl);
+    }
     await prisma.musicTrack.delete({ where: { id } });
   }
 }

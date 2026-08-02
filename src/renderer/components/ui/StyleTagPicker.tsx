@@ -134,7 +134,7 @@ export function StyleTagPicker({ value, onChange, maxTags = 8, compact = false }
   const inputRef = useRef<HTMLInputElement>(null);
 
   const selectedSet = useMemo(() => {
-    return new Set(value.split(',').map((s) => s.trim()).filter(Boolean));
+    return new Set(value.split('|||').map((s) => s.trim()).filter(Boolean));
   }, [value]);
 
   const toggleTag = (tag: string) => {
@@ -145,7 +145,7 @@ export function StyleTagPicker({ value, onChange, maxTags = 8, compact = false }
       if (next.size >= maxTags) return;
       next.add(tag);
     }
-    onChange(Array.from(next).join(', '));
+    onChange(Array.from(next).join('|||'));
   };
 
   const addCustomTag = () => {
@@ -155,7 +155,7 @@ export function StyleTagPicker({ value, onChange, maxTags = 8, compact = false }
     if (next.has(tag)) return;
     if (next.size >= maxTags) return;
     next.add(tag);
-    onChange(Array.from(next).join(', '));
+    onChange(Array.from(next).join('|||'));
     setCustomInput('');
     inputRef.current?.focus();
   };

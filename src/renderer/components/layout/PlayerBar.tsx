@@ -27,7 +27,8 @@ export function PlayerBar() {
     if (!audio) return;
 
     if (isPlaying && currentTrack?.audioUrl) {
-      audio.src = currentTrack.audioUrl;
+      const audioSrc = currentTrack.localAudioUrl || currentTrack.audioUrl;
+      audio.src = audioSrc;
       audio.play().catch(() => setIsPlaying(false));
     } else {
       audio.pause();

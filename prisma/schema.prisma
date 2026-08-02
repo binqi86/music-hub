@@ -18,6 +18,7 @@ model MusicTrack {
   mode         String   @default("custom")
   status       String   @default("submitted")
   audioUrl     String?
+  localAudioUrl String?
   videoUrl     String?
   imageUrl     String?
   duration     Float?

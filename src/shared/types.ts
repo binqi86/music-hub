@@ -9,6 +9,7 @@ export interface MusicTrackData {
   mode: string;
   status: string;
   audioUrl: string | null;
+  localAudioUrl: string | null;
   videoUrl: string | null;
   imageUrl: string | null;
   duration: number | null;
@@ -200,6 +201,7 @@ export interface ElectronAPI {
 
   // File operations
   downloadFile: (url: string, filename: string) => Promise<string>;
+  copyLocalFile: (localAudioUrl: string, outputFilename: string) => Promise<string>;
 
   // Event listeners (main -> renderer)
   onTaskUpdate: (callback: (data: { taskId: string; status: string; progress: number }) => void) => () => void;

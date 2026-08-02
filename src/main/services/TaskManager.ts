@@ -13,6 +13,7 @@ interface PollingTask {
 export class TaskManager {
   private activeTimers = new Map<string, NodeJS.Timeout>();
   private activeTasks = new Map<string, PollingTask>();
+  private completedTasks = new Set<string>();
   private static instance: TaskManager;
 
   static getInstance(): TaskManager {
@@ -44,9 +45,12 @@ export class TaskManager {
         }
 
         if (status.status === 'completed') {
+          if (this.completedTasks.has(task.taskId)) return;
+          this.completedTasks.add(task.taskId);
           this.stopPolling(task.taskId);
           task.onComplete(status);
         } else if (status.status === 'failed') {
+          this.completedTasks.add(task.taskId);
           this.stopPolling(task.taskId);
           const errMsg = status.error?.message || 'Task failed';
           await prisma.musicTrack.updateMany({

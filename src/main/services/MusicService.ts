@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma';
 import { configureProvider } from '../lib/api-client';
 import { ProviderFactory } from '../providers/ProviderFactory';
 import { TaskManager } from './TaskManager';
+import { downloadToMusicStorage, getLocalAudioUrl, getFilenameFromUrl } from '../utils/music-storage';
 import type { MusicProvider, TaskResult } from '../providers/types';
 import type { GenerationParams, CoverParams, ExtendParams, StemsParams, MVParams } from '../../shared/types';
 
@@ -40,6 +41,18 @@ export class MusicService {
     return ProviderFactory.getProvider(model);
   }
 
+  private async downloadAudioLocally(musicItem: { audio_url?: string; title?: string }, trackId: string, index: number): Promise<string | null> {
+    if (!musicItem.audio_url) return null;
+    try {
+      const filename = getFilenameFromUrl(musicItem.audio_url, trackId, index, musicItem.title);
+      await downloadToMusicStorage(musicItem.audio_url, filename);
+      return getLocalAudioUrl(filename);
+    } catch (err) {
+      console.error(`Failed to download audio locally for track ${trackId}:`, err);
+      return null;
+    }
+  }
+
   private async handleResult(taskId: string, result: TaskResult) {
     if (!result.result?.music?.length) return;
 
@@ -52,12 +65,14 @@ export class MusicService {
     // First song: update the original MusicTrack record
     const firstMusic = result.result.music.find(m => m.audio_url);
     if (firstMusic && original) {
+      const localAudioUrl = await this.downloadAudioLocally(firstMusic, original.id, 0);
       await prisma.musicTrack.update({
         where: { id: original.id },
         data: {
           status: 'completed',
           title: firstMusic.title || null,
           audioUrl: firstMusic.audio_url || null,
+          localAudioUrl: localAudioUrl,
           videoUrl: firstMusic.video_url || null,
           imageUrl: firstMusic.image_url || firstMusic.image_large_url || null,
           lyrics: firstMusic.lyrics || null,
@@ -73,11 +88,12 @@ export class MusicService {
     }
 
     // Extra songs: create additional MusicTrack records
+    let extraIndex = 1;
     for (const m of result.result.music) {
       if (!m.audio_url) continue;
       if (firstMusic && m === firstMusic) continue; // skip the first one (already updated)
 
-      await prisma.musicTrack.create({
+      const newTrack = await prisma.musicTrack.create({
         data: {
           taskId,
           model: original?.model || 'suno',
@@ -94,6 +110,16 @@ export class MusicService {
           params: original?.params || null,
         },
       });
+
+      // Download audio locally for extra songs
+      const localAudioUrl = await this.downloadAudioLocally(m, newTrack.id, extraIndex);
+      if (localAudioUrl) {
+        await prisma.musicTrack.update({
+          where: { id: newTrack.id },
+          data: { localAudioUrl },
+        });
+      }
+      extraIndex++;
     }
   }
 

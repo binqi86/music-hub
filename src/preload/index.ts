@@ -24,6 +24,7 @@ const electronAPI: ElectronAPI = {
 
   // File operations
   downloadFile: (url: string, filename: string) => ipcRenderer.invoke('file:download', url, filename),
+  copyLocalFile: (localAudioUrl: string, outputFilename: string) => ipcRenderer.invoke('file:copy-local', localAudioUrl, outputFilename),
 
   // Event listeners
   onTaskUpdate: (callback: (data: { taskId: string; status: string; progress: number }) => void) => {
