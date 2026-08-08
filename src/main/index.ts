@@ -1,5 +1,6 @@
-import { app, BrowserWindow, ipcMain, protocol, net } from 'electron';
+import { app, BrowserWindow, ipcMain, protocol } from 'electron';
 import path from 'path';
+import fs from 'fs';
 import { prisma } from './lib/prisma';
 import { registerMusicHandlers } from './ipc/music-handlers';
 import { registerLibraryHandlers } from './ipc/library-handlers';
@@ -55,18 +56,66 @@ async function seedDefaultProvider() {
   }
 }
 
+function getContentType(filename: string): string {
+  const ext = path.extname(filename).toLowerCase();
+  const types: Record<string, string> = {
+    '.mp3': 'audio/mpeg',
+    '.wav': 'audio/wav',
+    '.ogg': 'audio/ogg',
+    '.flac': 'audio/flac',
+    '.m4a': 'audio/mp4',
+    '.webm': 'audio/webm',
+  };
+  return types[ext] || 'application/octet-stream';
+}
+
 app.whenReady().then(async () => {
   // Ensure music storage directory exists
   getMusicStoragePath();
 
-  // Register custom protocol handler for serving local music files
-  protocol.handle('local-music', (request) => {
+  // Register custom protocol handler for serving local music files.
+  // Must implement HTTP Range requests manually: without them, <audio>/<video>
+  // elements treat the source as unseekable and ignore currentTime changes.
+  // (net.fetch('file://') does not honor Range — see electron/electron#38749.)
+  protocol.handle('local-music', async (request) => {
     const url = new URL(request.url);
     const musicStoragePath = getMusicStoragePath();
     // local-music:///encoded-filename.mp3 → pathname is "/encoded-filename.mp3"
     const filename = decodeURIComponent(url.pathname.slice(1));
     const filePath = path.join(musicStoragePath, filename);
-    return net.fetch('file://' + filePath);
+
+    const data = await fs.promises.readFile(filePath);
+    const size = data.length;
+    const range = request.headers.get('Range');
+
+    const baseHeaders: Record<string, string> = {
+      'Content-Type': getContentType(filename),
+      'Accept-Ranges': 'bytes',
+    };
+
+    if (range) {
+      const match = /^bytes=(\d*)-(\d*)$/.exec(range);
+      if (match) {
+        const start = match[1] ? parseInt(match[1], 10) : 0;
+        const end = match[2] ? Math.min(parseInt(match[2], 10), size - 1) : size - 1;
+        if (start < size && start <= end) {
+          return new Response(data.subarray(start, end + 1), {
+            status: 206,
+            headers: {
+              ...baseHeaders,
+              'Content-Length': String(end - start + 1),
+              'Content-Range': `bytes ${start}-${end}/${size}`,
+            },
+          });
+        }
+        return new Response(null, { status: 416 });
+      }
+    }
+
+    return new Response(data, {
+      status: 200,
+      headers: { ...baseHeaders, 'Content-Length': String(size) },
+    });
   });
 
   await seedDefaultProvider();
