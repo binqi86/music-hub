@@ -1,6 +1,20 @@
 import type { SubmitResponse, TaskResult, GenerationParams, CoverParams, ExtendParams, StemsParams, MVParams } from '../../shared/types';
 export type { SubmitResponse, TaskResult, GenerationParams, CoverParams, ExtendParams, StemsParams, MVParams };
 
+// APIMart 任务接口返回的完成/失败状态字符串与代码中的规范值不完全一致
+// （例如完成后返回 "complete" 而非 "completed"），在解析边界统一归一化，
+// 使 TaskManager / 渲染层只需处理 'completed' / 'failed' 两种终态。
+export function normalizeTaskStatus(status: string): string {
+  const s = (status || '').toLowerCase();
+  if (['complete', 'completed', 'success', 'succeeded', 'finished', 'done'].includes(s)) {
+    return 'completed';
+  }
+  if (['failed', 'error', 'canceled', 'cancelled', 'expired'].includes(s)) {
+    return 'failed';
+  }
+  return status;
+}
+
 export interface MusicProvider {
   readonly id: string;
   readonly name: string;

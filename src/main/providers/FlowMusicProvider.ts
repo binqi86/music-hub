@@ -1,5 +1,6 @@
 import { apiClient } from '../lib/api-client';
 import type { MusicProvider, SubmitResponse, TaskResult, GenerationParams, CoverParams, ExtendParams, StemsParams, MVParams } from './types';
+import { normalizeTaskStatus } from './types';
 
 export class FlowMusicProvider implements MusicProvider {
   readonly id = 'flowmusic';
@@ -58,7 +59,7 @@ export class FlowMusicProvider implements MusicProvider {
     const d = response.data;
     return {
       taskId: d.id,
-      status: d.status,
+      status: normalizeTaskStatus(d.status),
       progress: d.progress,
       result: d.result ? {
         music: d.result.music?.map(m => ({
