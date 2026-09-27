@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { ArrowLeft, Download, Music, Wand2, Scissors, Video, Play, Pause, FileText } from 'lucide-react';
 import { Card } from '../components/ui/Card';
 import { StyleTagPicker } from '../components/ui/StyleTagPicker';
@@ -7,8 +7,10 @@ import { Badge } from '../components/ui/Badge';
 import { Spinner } from '../components/ui/Spinner';
 import { Modal } from '../components/ui/Modal';
 import { usePlayerStore } from '../stores/player-store';
-import { getTrack, generateCover, generateExtend, separateStems, generateAlignedLyrics, downloadFile, copyLocalFile } from '../lib/electron-api';
+import { useGenerationStore } from '../stores/generation-store';
+import { getTrack, generateCover, generateExtend, separateStems, generateAlignedLyrics, uploadLocalAudio, downloadFile, copyLocalFile } from '../lib/electron-api';
 import { formatDuration, getModelLabel, getModeLabel } from '../lib/utils';
+import { SUNO_LIMITS, joinStyleForApi } from '../../shared/limits';
 import type { MusicTrackData, StemTrackData } from '../../shared/types';
 import type { Page, PageParams } from '../App';
 
@@ -22,17 +24,34 @@ export function TrackDetail({ trackId, onNavigate }: TrackDetailProps) {
   const [loading, setLoading] = useState(true);
   const [actionModal, setActionModal] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
+  const [actionStatus, setActionStatus] = useState<string | null>(null);
   const [alignedLyricsLoading, setAlignedLyricsLoading] = useState(false);
   const [coverStyle, setCoverStyle] = useState('');
   const [extendPrompt, setExtendPrompt] = useState('');
   const { play, currentTrack, isPlaying, togglePlay } = usePlayerStore();
+  const addTask = useGenerationStore((s) => s.addTask);
+  // 全局任务到达终态时会自增 revision，据此刷新本页的衍生子曲目状态
+  const revision = useGenerationStore((s) => s.revision);
+
+  const loadTrack = useCallback(
+    (showSpinner = false) => {
+      if (showSpinner) setLoading(true);
+      return getTrack(trackId)
+        .then(setTrack)
+        .catch(console.error)
+        .finally(() => setLoading(false));
+    },
+    [trackId]
+  );
 
   useEffect(() => {
-    getTrack(trackId)
-      .then(setTrack)
-      .catch(console.error)
-      .finally(() => setLoading(false));
-  }, [trackId]);
+    loadTrack(true);
+  }, [loadTrack]);
+
+  useEffect(() => {
+    if (revision > 0) loadTrack();
+  }, [revision, loadTrack]);
+
 
   const handleDownload = async () => {
     if (!track?.audioUrl) return;
@@ -50,47 +69,117 @@ export function TrackDetail({ trackId, onNavigate }: TrackDetailProps) {
   const handleCover = async () => {
     if (!track) return;
     setActionLoading(true);
+    setActionStatus(null);
     try {
-      const apiStyle = coverStyle.replace(/\|\|\|/g, ', ');
-      await generateCover({
-        taskId: track.taskId,
+      const apiStyle = joinStyleForApi(coverStyle);
+      if (apiStyle.length > SUNO_LIMITS.style) {
+        alert(`目标风格 ${apiStyle.length}/${SUNO_LIMITS.style} 字符，超出接口长度上限，请减少标签`);
+        setActionLoading(false);
+        return;
+      }
+
+      // 服务器不会长期保留引用 ID（Flow Music 的 clip_id / Suno 的 task_id），
+      // 历史曲目的引用随时可能失效。所以翻唱前先把本地已下载的音频重新上传一次，
+      // 换取一个全新的、立即可用的源标识。
+      let sourceTaskId = track.taskId;
+      let sourceClipId = track.clipId || undefined;
+
+      if (track.localAudioUrl) {
+        setActionStatus('正在重新上传音频，约需十几秒…');
+        const uploaded = await uploadLocalAudio({
+          localAudioUrl: track.localAudioUrl,
+          model: track.model,
+        });
+        sourceTaskId = uploaded.taskId;
+        sourceClipId = uploaded.clipId || undefined;
+        if (track.model === 'flowmusic' && !sourceClipId) {
+          throw new Error('上传完成但未取得新的 clip_id，请稍后重试');
+        }
+      }
+
+      setActionStatus('正在提交翻唱…');
+      const result = await generateCover({
+        taskId: sourceTaskId,
+        clipId: sourceClipId,
         tags: apiStyle,
         gptDescription: apiStyle,
+        model: track.model,
       });
+
+      addTask({
+        taskId: result.taskId,
+        model: track.model,
+        mode: 'cover',
+        status: 'submitted',
+        progress: 0,
+        createdAt: Date.now(),
+        trackId: track.id,
+      });
+
       setActionModal(null);
       setCoverStyle('');
     } catch (err) {
-      alert('翻唱失败');
+      alert(err instanceof Error ? err.message : '翻唱失败');
     }
+    setActionStatus(null);
     setActionLoading(false);
   };
 
   const handleExtend = async () => {
     if (!track) return;
     setActionLoading(true);
+    setActionStatus(null);
     try {
-      await generateExtend({
+      const result = await generateExtend({
         taskId: track.taskId,
+        clipId: track.clipId || undefined,
+        model: track.model,
         continueAt: track.duration ? Math.floor(track.duration / 2) : 30,
         gptDescription: extendPrompt,
+      });
+      addTask({
+        taskId: result.taskId,
+        model: track.model,
+        mode: 'extend',
+        status: 'submitted',
+        progress: 0,
+        createdAt: Date.now(),
+        trackId: track.id,
       });
       setActionModal(null);
       setExtendPrompt('');
     } catch (err) {
-      alert('续写失败');
+      alert(err instanceof Error ? err.message : '续写失败');
     }
+    setActionStatus(null);
     setActionLoading(false);
   };
 
   const handleStems = async () => {
     if (!track) return;
     setActionLoading(true);
+    setActionStatus(null);
     try {
-      await separateStems({ taskId: track.taskId, stemType: 'lead_vocal' });
+      const result = await separateStems({
+        taskId: track.taskId,
+        clipId: track.clipId || undefined,
+        model: track.model,
+        stemType: 'lead_vocal',
+      });
+      addTask({
+        taskId: result.taskId,
+        model: track.model,
+        mode: 'stems',
+        status: 'submitted',
+        progress: 0,
+        createdAt: Date.now(),
+        trackId: track.id,
+      });
       setActionModal(null);
     } catch (err) {
-      alert('音轨分离失败');
+      alert(err instanceof Error ? err.message : '音轨分离失败');
     }
+    setActionStatus(null);
     setActionLoading(false);
   };
 
@@ -283,6 +372,11 @@ export function TrackDetail({ trackId, onNavigate }: TrackDetailProps) {
                 className="block text-brand-400 hover:text-brand-300 text-sm"
               >
                 {child.title || 'Untitled'} ({getModeLabel(child.mode)})
+                {child.status !== 'completed' && (
+                  <span className="ml-2 text-xs text-theme-tertiary">
+                    {child.status === 'failed' ? '生成失败' : '生成中…'}
+                  </span>
+                )}
               </button>
             ))}
           </div>
@@ -296,7 +390,11 @@ export function TrackDetail({ trackId, onNavigate }: TrackDetailProps) {
         title="翻唱"
       >
         <p className="text-sm text-theme-secondary mb-4">选择目标风格，将这首歌翻唱成新的版本</p>
+        <p className="text-xs text-theme-tertiary mb-4">
+          翻唱前会先把本地音频重新上传一次，换取新的引用 ID（服务器不会长期保存旧的），因此需要额外十几秒。
+        </p>
         <StyleTagPicker value={coverStyle} onChange={setCoverStyle} />
+        {actionStatus && <p className="text-xs text-brand-300 mt-3">{actionStatus}</p>}
         <div className="mt-4">
           <Button className="w-full" loading={actionLoading} onClick={handleCover}>
             开始翻唱
@@ -316,6 +414,7 @@ export function TrackDetail({ trackId, onNavigate }: TrackDetailProps) {
           placeholder="延续主歌旋律，加入弦乐..."
           className="w-full bg-surface-900 border border-surface-700 rounded-lg px-4 py-2.5 text-sm h-24 resize-none mb-4 focus:outline-none focus:border-brand-500"
         />
+        {actionStatus && <p className="text-xs text-brand-300 mb-3">{actionStatus}</p>}
         <Button className="w-full" loading={actionLoading} onClick={handleExtend}>
           开始续写
         </Button>

@@ -1,6 +1,13 @@
 import { apiClient } from '../lib/api-client';
 import type { MusicProvider, SubmitResponse, TaskResult, GenerationParams, CoverParams, ExtendParams, StemsParams, MVParams } from './types';
-import { normalizeTaskStatus } from './types';
+import { normalizeTaskStatus, extractSubmittedTask } from './types';
+
+/** Flow Music 的时长可能是字符串（"181.70666667"）或数字，统一转成浮点秒数 */
+function parseDuration(value: string | number | undefined): number | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  const n = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+}
 
 export class FlowMusicProvider implements MusicProvider {
   readonly id = 'flowmusic';
@@ -30,7 +37,7 @@ export class FlowMusicProvider implements MusicProvider {
       data: {
         id: string;
         status: string;
-        progress: number;
+        progress?: number;
         result?: {
           music?: Array<{
             audio_url?: string;
@@ -39,8 +46,14 @@ export class FlowMusicProvider implements MusicProvider {
             title?: string;
             lyrics?: string;
             duration?: number;
+            /** Flow Music 返回的是字符串形式的秒数，如 "181.70666667" */
+            duration_seconds?: string | number;
             clip_id?: string;
             wav_url?: string;
+            file_url?: string;
+            url?: string;
+            mime_type?: string;
+            size_bytes?: number;
             lyrics_id?: string;
             lyrics_timing_markers?: number[][];
           }>;
@@ -54,13 +67,13 @@ export class FlowMusicProvider implements MusicProvider {
         credits_cost?: number;
         actual_time?: number;
       };
-    }>(`/v1/music/tasks/${taskId}`);
+    }>(`/v1/music/tasks/${taskId}?language=zh`);
 
     const d = response.data;
     return {
       taskId: d.id,
       status: normalizeTaskStatus(d.status),
-      progress: d.progress,
+      progress: typeof d.progress === 'number' ? d.progress : 0,
       result: d.result ? {
         music: d.result.music?.map(m => ({
           audio_url: m.audio_url,
@@ -68,9 +81,16 @@ export class FlowMusicProvider implements MusicProvider {
           image_url: m.image_url,
           title: m.title,
           lyrics: m.lyrics,
-          duration: m.duration ? Number(m.duration) : undefined,
+          // Flow Music 用 duration_seconds（字符串）表示时长，缺了它曲目时长会全部丢失
+          duration: parseDuration(m.duration ?? m.duration_seconds),
           clip_id: m.clip_id,
           wav_url: m.wav_url,
+          file_url: m.file_url,
+          url: m.url,
+          mime_type: m.mime_type,
+          size_bytes: m.size_bytes,
+          lyrics_id: m.lyrics_id,
+          lyrics_timing_markers: m.lyrics_timing_markers,
         })),
         lyrics: d.result.lyrics,
       } : undefined,
@@ -81,12 +101,22 @@ export class FlowMusicProvider implements MusicProvider {
     };
   }
 
+  /**
+   * Flow Music 的所有衍生接口（Cover / 续写 / 片段替换 / 词曲分离 / 视频渲染）
+   * 都要求传源音乐的 clip_id，而不是生成任务的 task_id。二者完全不同：
+   * clip_id 只出现在已完成任务的 result.music[].clip_id 里。
+   */
+  private resolveClipId(params: { clipId?: string; taskId: string }): string {
+    return params.clipId || params.taskId;
+  }
+
   async cover(params: CoverParams): Promise<SubmitResponse> {
     const body: Record<string, unknown> = {
       model: 'flowmusic',
-      clip_id: params.taskId, // Flow Music uses clip_id, mapping from taskId
+      version: params.version || 'lyria-3.5',
+      clip_id: this.resolveClipId(params),
       instruction: params.gptDescription || params.prompt || '',
-      strength: 0.5,
+      strength: params.strength ?? 0.5,
     };
 
     if (params.title) body.title = params.title;
@@ -103,13 +133,14 @@ export class FlowMusicProvider implements MusicProvider {
   async extend(params: ExtendParams): Promise<SubmitResponse> {
     const body: Record<string, unknown> = {
       model: 'flowmusic',
-      clip_id: params.taskId,
+      clip_id: this.resolveClipId(params),
       extend_from_s: params.continueAt,
-      extend_s: 30, // default extension duration
+      extend_s: Math.min(params.extendS ?? 30, 164), // 文档上限 164 秒
       instruction: params.gptDescription || params.prompt || '延续主歌旋律',
     };
 
     if (params.title) body.title = params.title;
+    if (params.seed) body.seed = params.seed;
 
     const response = await apiClient.post<{ code: number; data: Array<{ status: string; task_id: string }> }>(
       '/v1/music/generations/extendFlowMusic',
@@ -124,7 +155,7 @@ export class FlowMusicProvider implements MusicProvider {
       '/v1/music/generations/stemsFlowMusic',
       {
         model: 'flowmusic',
-        clip_id: params.taskId,
+        clip_id: this.resolveClipId(params),
       }
     );
 
@@ -134,7 +165,7 @@ export class FlowMusicProvider implements MusicProvider {
   async generateMV(params: MVParams): Promise<SubmitResponse> {
     const body: Record<string, unknown> = {
       model: 'flowmusic',
-      clip_id: params.taskId,
+      clip_id: this.resolveClipId(params),
     };
 
     if (params.preset) body.preset = params.preset;
@@ -157,12 +188,12 @@ export class FlowMusicProvider implements MusicProvider {
   }
 
   async upload(audioUrl: string): Promise<SubmitResponse> {
-    const response = await apiClient.post<{ code: number; data: Array<{ status: string; task_id: string }> }>(
+    const response = await apiClient.post(
       '/v1/music/generations/uploadAudioFlowMusic',
       { model: 'flowmusic', audio_url: audioUrl }
     );
 
-    return { taskId: response.data[0].task_id, status: response.data[0].status };
+    return extractSubmittedTask(response, 'Flow Music 上传音频');
   }
 
   // Flow Music specific: replace section
@@ -178,7 +209,7 @@ export class FlowMusicProvider implements MusicProvider {
   }): Promise<SubmitResponse> {
     const body: Record<string, unknown> = {
       model: 'flowmusic',
-      clip_id: params.taskId,
+      clip_id: this.resolveClipId(params),
       instruction: params.gptDescription || params.prompt || '',
     };
     if (params.startTime !== undefined) body.start_time = params.startTime;

@@ -68,7 +68,7 @@ export function Settings() {
   const handleToggleTunnel = async (id: string, current: boolean) => {
     try {
       await updateProviderConfig(id, { useTunnel: !current });
-      setSuccess(current ? '隧道已关闭' : '隧道已开启');
+      setSuccess(current ? '已关闭隧道回退' : '已开启隧道回退');
       loadConfigs();
     } catch (err) {
       setError('设置失败');
@@ -150,11 +150,11 @@ export function Settings() {
                   </div>
                 </div>
 
-                {/* Tunnel toggle */}
+                {/* 隧道回退开关 */}
                 <div className="mt-3 flex items-center gap-3">
                   <span className="text-xs text-theme-secondary flex items-center gap-1.5">
                     <Radio className="w-3.5 h-3.5" />
-                    上传隧道 (Cloudflare)
+                    隧道回退 (Cloudflare)
                   </span>
                   <button
                     type="button"
@@ -170,7 +170,9 @@ export function Settings() {
                     />
                   </button>
                   <span className="text-xs text-theme-tertiary">
-                    {config.useTunnel ? '上传本地文件时自动启用' : '仅支持公网 URL 上传'}
+                    {config.useTunnel
+                      ? '图床直传失败时才启用'
+                      : '关闭｜本地音频默认走图床直传'}
                   </span>
                 </div>
 

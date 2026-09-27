@@ -1,6 +1,7 @@
 export interface MusicTrackData {
   id: string;
   taskId: string;
+  clipId: string | null;
   title: string | null;
   lyrics: string | null;
   prompt: string | null;
@@ -60,6 +61,8 @@ export interface GenerationParams {
 
 export interface CoverParams {
   taskId: string;
+  /** Flow Music 的源音乐标识（clip_id），与 Suno 的 task_id 是两个不同的东西 */
+  clipId?: string;
   audioIndex?: number;
   model?: string;
   prompt?: string;
@@ -67,6 +70,8 @@ export interface CoverParams {
   title?: string;
   tags?: string;
   version?: string;
+  /** Flow Music 编辑强度 0~1，越大改动越大 */
+  strength?: number;
   custom?: boolean;
   vocalGender?: string;
   negativeTags?: string;
@@ -78,8 +83,13 @@ export interface CoverParams {
 
 export interface ExtendParams {
   taskId: string;
+  /** Flow Music 的源音乐标识（clip_id） */
+  clipId?: string;
   audioIndex?: number;
   continueAt: number;
+  /** Flow Music 续写时长（秒），最大 164 */
+  extendS?: number;
+  seed?: string;
   model?: string;
   version?: string;
   custom?: boolean;
@@ -92,6 +102,8 @@ export interface ExtendParams {
 
 export interface StemsParams {
   taskId: string;
+  /** Flow Music 的源音乐标识（clip_id） */
+  clipId?: string;
   audioIndex?: number;
   stemType?: string;
   model?: string;
@@ -99,6 +111,8 @@ export interface StemsParams {
 
 export interface MVParams {
   taskId: string;
+  /** Flow Music 的源音乐标识（clip_id） */
+  clipId?: string;
   audioIndex?: number;
   model?: string;
   preset?: string;
@@ -130,6 +144,9 @@ export interface TaskResult {
       url?: string;
       mime_type?: string;
       size_bytes?: number;
+      lyrics_id?: string;
+      /** 歌词时间轴，格式为 [行起始帧, 行长度] */
+      lyrics_timing_markers?: number[][];
     }>;
     lyrics?: Array<{
       title?: string;
@@ -176,6 +193,26 @@ export interface LibraryResult {
   page: number;
 }
 
+/**
+ * 上传音频的结果。上传接口本身也是异步任务，必须等任务完成后才能从
+ * result.music[0].clip_id 拿到真正的源音乐标识，后续翻唱/续写/分轨都基于它。
+ */
+export interface UploadResult {
+  taskId: string;
+  trackId: string;
+  clipId: string | null;
+  audioUrl: string | null;
+  title: string | null;
+  duration: number | null;
+}
+
+export interface TaskUpdateEvent {
+  taskId: string;
+  status: string;
+  progress: number;
+  error?: string;
+}
+
 export interface ElectronAPI {
   // Music generation
   generateMusic: (params: GenerationParams) => Promise<SubmitResponse>;
@@ -187,7 +224,9 @@ export interface ElectronAPI {
   getTaskStatus: (taskId: string) => Promise<TaskResult>;
 
   // Upload
-  uploadAudio: () => Promise<{ taskId: string } | null>;
+  uploadAudio: (params?: { model?: string }) => Promise<UploadResult | null>;
+  /** 把曲库里已下载到本地的音频重新上传，换取一个全新的 clip_id */
+  uploadLocalAudio: (params: { localAudioUrl: string; model?: string }) => Promise<UploadResult>;
 
   // Library
   getLibrary: (filter: LibraryFilter) => Promise<LibraryResult>;
@@ -196,7 +235,7 @@ export interface ElectronAPI {
 
   // Provider config
   getProviderConfigs: () => Promise<ProviderConfigData[]>;
-  updateProviderConfig: (id: string, data: { apiKey?: string; baseUrl?: string; displayName?: string; isActive?: boolean }) => Promise<ProviderConfigData>;
+  updateProviderConfig: (id: string, data: { apiKey?: string; baseUrl?: string; displayName?: string; isActive?: boolean; useTunnel?: boolean }) => Promise<ProviderConfigData>;
   setActiveProvider: (id: string) => Promise<void>;
 
   // File operations
@@ -204,7 +243,7 @@ export interface ElectronAPI {
   copyLocalFile: (localAudioUrl: string, outputFilename: string) => Promise<string>;
 
   // Event listeners (main -> renderer)
-  onTaskUpdate: (callback: (data: { taskId: string; status: string; progress: number }) => void) => () => void;
+  onTaskUpdate: (callback: (data: TaskUpdateEvent) => void) => () => void;
 }
 
 declare global {

@@ -7,6 +7,7 @@ import { registerLibraryHandlers } from './ipc/library-handlers';
 import { registerFileHandlers } from './ipc/file-handlers';
 import { registerProviderHandlers } from './ipc/provider-handlers';
 import { getMusicStoragePath } from './utils/music-storage';
+import { DEFAULT_BASE_URL, normalizeBaseUrl, isLegacyBaseUrl } from './utils/base-url';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -40,6 +41,28 @@ function createWindow() {
   }
 }
 
+// 接口域名已迁移到 apib.ai：把历史配置里指向旧域名的记录一次性改掉，
+// 避免老用户升级后还打向已经不再维护的地址。
+async function migrateLegacyBaseUrl() {
+  try {
+    const legacy = await prisma.providerConfig.findMany();
+    let migrated = 0;
+    for (const config of legacy) {
+      if (!isLegacyBaseUrl(config.baseUrl)) continue;
+      await prisma.providerConfig.update({
+        where: { id: config.id },
+        data: { baseUrl: normalizeBaseUrl(config.baseUrl) },
+      });
+      migrated++;
+    }
+    if (migrated > 0) {
+      console.log(`Migrated ${migrated} provider config(s) to ${DEFAULT_BASE_URL}`);
+    }
+  } catch (err) {
+    console.error('Failed to migrate legacy base URL:', err);
+  }
+}
+
 async function seedDefaultProvider() {
   const existing = await prisma.providerConfig.findUnique({ where: { name: 'apimart' } });
   if (!existing) {
@@ -47,7 +70,7 @@ async function seedDefaultProvider() {
       data: {
         name: 'apimart',
         apiKey: '',
-        baseUrl: 'https://api.apimart.ai',
+        baseUrl: DEFAULT_BASE_URL,
         displayName: 'APIMart',
         isActive: true,
       },
@@ -118,6 +141,7 @@ app.whenReady().then(async () => {
     });
   });
 
+  await migrateLegacyBaseUrl();
   await seedDefaultProvider();
   createWindow();
   registerMusicHandlers(ipcMain, mainWindow);

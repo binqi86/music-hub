@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useRef } from 'react';
 import { clsx } from 'clsx';
 import { Plus } from 'lucide-react';
+import { MAX_STYLE_TAGS, SUNO_LIMITS, joinStyleForApi } from '../../../shared/limits';
 
 // English tag values (sent to API) mapped to Chinese display labels
 const TAG_LABELS: Record<string, string> = {
@@ -123,11 +124,20 @@ function getCategoryLabel(cat: string): string {
 interface StyleTagPickerProps {
   value: string;
   onChange: (value: string) => void;
+  /** 标签数量防呆上限。接口按字符数限制，这里只是避免界面被极端输入拖垮。 */
   maxTags?: number;
+  /** 标签拼成接口字符串后的字符上限（默认 Suno 的 style 上限 1000）。 */
+  maxChars?: number;
   compact?: boolean;
 }
 
-export function StyleTagPicker({ value, onChange, maxTags = 8, compact = false }: StyleTagPickerProps) {
+export function StyleTagPicker({
+  value,
+  onChange,
+  maxTags = MAX_STYLE_TAGS,
+  maxChars = SUNO_LIMITS.style,
+  compact = false,
+}: StyleTagPickerProps) {
   const categories = Object.keys(TAG_CATEGORIES);
   const [activeCategory, setActiveCategory] = useState(categories[0]);
   const [customInput, setCustomInput] = useState('');
@@ -137,15 +147,25 @@ export function StyleTagPicker({ value, onChange, maxTags = 8, compact = false }
     return new Set(value.split('|||').map((s) => s.trim()).filter(Boolean));
   }, [value]);
 
+  // 接口实际收到的是逗号分隔的字符串，所以按它计算字符数
+  const usedChars = useMemo(() => joinStyleForApi(value).length, [value]);
+  const overChars = usedChars > maxChars;
+
+  const commit = (next: Set<string>) => {
+    onChange(Array.from(next).join('|||'));
+  };
+
   const toggleTag = (tag: string) => {
     const next = new Set(selectedSet);
     if (next.has(tag)) {
       next.delete(tag);
     } else {
       if (next.size >= maxTags) return;
+      // 加上这个标签后若超出字符上限，则不添加（其余标签仍可正常增删）
+      if (joinStyleForApi([...next, tag].join('|||')).length > maxChars) return;
       next.add(tag);
     }
-    onChange(Array.from(next).join('|||'));
+    commit(next);
   };
 
   const addCustomTag = () => {
@@ -154,8 +174,9 @@ export function StyleTagPicker({ value, onChange, maxTags = 8, compact = false }
     const next = new Set(selectedSet);
     if (next.has(tag)) return;
     if (next.size >= maxTags) return;
+    if (joinStyleForApi([...next, tag].join('|||')).length > maxChars) return;
     next.add(tag);
-    onChange(Array.from(next).join('|||'));
+    commit(next);
     setCustomInput('');
     inputRef.current?.focus();
   };
@@ -188,7 +209,7 @@ export function StyleTagPicker({ value, onChange, maxTags = 8, compact = false }
         <div className="flex flex-wrap gap-1.5">
           {currentTags.map((tag) => {
             const selected = selectedSet.has(tag);
-            const atMax = selectedSet.size >= maxTags && !selected;
+            const atMax = (selectedSet.size >= maxTags || overChars) && !selected;
             return (
               <button
                 key={tag}
@@ -224,14 +245,14 @@ export function StyleTagPicker({ value, onChange, maxTags = 8, compact = false }
               addCustomTag();
             }
           }}
-          placeholder="自定义曲风（建议用英文），按 Enter 添加..."
-          disabled={selectedSet.size >= maxTags}
+          placeholder="自定义标签（中英文均可），按 Enter 添加..."
+          disabled={selectedSet.size >= maxTags || overChars}
           className="flex-1 bg-surface-900 border border-surface-700 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:border-brand-500 disabled:opacity-40"
         />
         <button
           type="button"
           onClick={addCustomTag}
-          disabled={!customInput.trim() || selectedSet.size >= maxTags}
+          disabled={!customInput.trim() || selectedSet.size >= maxTags || overChars}
           className="p-1.5 rounded-md bg-brand-600 text-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-brand-500 transition-colors"
         >
           <Plus className="w-3.5 h-3.5" />
@@ -260,8 +281,9 @@ export function StyleTagPicker({ value, onChange, maxTags = 8, compact = false }
       )}
 
       {/* Count */}
-      <p className="text-xs text-theme-tertiary">
-        已选 {selectedSet.size}/{maxTags} 个标签
+      <p className={clsx('text-xs', overChars ? 'text-red-400' : 'text-theme-tertiary')}>
+        已选 {selectedSet.size} 个标签 · {usedChars}/{maxChars} 字符
+        {overChars && '（已超出接口上限，请减少标签）'}
       </p>
     </div>
   );

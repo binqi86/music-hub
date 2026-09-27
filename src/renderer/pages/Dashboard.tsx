@@ -5,6 +5,7 @@ import { Spinner } from '../components/ui/Spinner';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
 import { usePlayerStore } from '../stores/player-store';
+import { useGenerationStore } from '../stores/generation-store';
 import { getLibrary } from '../lib/electron-api';
 import { formatDuration, formatDate, getModelLabel, getModeLabel, getStatusColor } from '../lib/utils';
 import type { MusicTrackData } from '../../shared/types';
@@ -20,12 +21,14 @@ export function Dashboard({ onNavigate }: DashboardProps) {
   const [quickPrompt, setQuickPrompt] = useState('');
   const { play } = usePlayerStore();
 
+  const revision = useGenerationStore((s) => s.revision);
+
   useEffect(() => {
     getLibrary({ pageSize: 6, status: 'completed' })
       .then((result) => setRecentTracks(result.tracks))
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, []);
+  }, [revision]);
 
   const handleQuickGenerate = () => {
     if (quickPrompt.trim()) {

@@ -17,12 +17,15 @@ export async function generateMusic(params: {
 
 export async function generateCover(params: {
   taskId: string;
+  clipId?: string;
   audioIndex?: number;
   prompt?: string;
   gptDescription?: string;
   tags?: string;
   title?: string;
   model?: string;
+  version?: string;
+  strength?: number;
   vocalGender?: string;
 }) {
   return window.electronAPI.generateCover(params);
@@ -30,8 +33,11 @@ export async function generateCover(params: {
 
 export async function generateExtend(params: {
   taskId: string;
+  clipId?: string;
   audioIndex?: number;
   continueAt: number;
+  extendS?: number;
+  seed?: string;
   prompt?: string;
   gptDescription?: string;
   model?: string;
@@ -41,6 +47,7 @@ export async function generateExtend(params: {
 
 export async function separateStems(params: {
   taskId: string;
+  clipId?: string;
   audioIndex?: number;
   stemType?: string;
   model?: string;
@@ -50,6 +57,7 @@ export async function separateStems(params: {
 
 export async function generateMV(params: {
   taskId: string;
+  clipId?: string;
   audioIndex?: number;
   model?: string;
 }) {
@@ -91,8 +99,18 @@ export async function copyLocalFile(localAudioUrl: string, outputFilename: strin
   return window.electronAPI.copyLocalFile(localAudioUrl, outputFilename);
 }
 
-export async function uploadAudio() {
-  return window.electronAPI.uploadAudio();
+export async function uploadAudio(params?: { model?: string }) {
+  return window.electronAPI.uploadAudio(params);
+}
+
+export async function uploadLocalAudio(params: { localAudioUrl: string; model?: string }) {
+  return window.electronAPI.uploadLocalAudio(params);
+}
+
+export function onTaskUpdate(
+  callback: (data: { taskId: string; status: string; progress: number; error?: string }) => void
+) {
+  return window.electronAPI.onTaskUpdate(callback);
 }
 
 export async function getProviderConfigs() {

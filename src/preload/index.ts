@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { ElectronAPI, GenerationParams, CoverParams, ExtendParams, StemsParams, MVParams, LibraryFilter } from '../shared/types';
+import type { ElectronAPI, GenerationParams, CoverParams, ExtendParams, StemsParams, MVParams, LibraryFilter, TaskUpdateEvent, UploadResult } from '../shared/types';
 
 const electronAPI: ElectronAPI = {
   // Music generation
@@ -10,7 +10,8 @@ const electronAPI: ElectronAPI = {
   generateMV: (params: MVParams) => ipcRenderer.invoke('music:mv', params),
   generateAlignedLyrics: (params: { taskId: string; audioIndex?: number }) => ipcRenderer.invoke('music:aligned-lyrics', params) as Promise<{ filtered: string; full: string }>,
   getTaskStatus: (taskId: string) => ipcRenderer.invoke('music:task-status', taskId),
-  uploadAudio: () => ipcRenderer.invoke('music:upload-audio'),
+  uploadAudio: (params?: { model?: string }) => ipcRenderer.invoke('music:upload-audio', params) as Promise<UploadResult | null>,
+  uploadLocalAudio: (params: { localAudioUrl: string; model?: string }) => ipcRenderer.invoke('music:upload-local-audio', params) as Promise<UploadResult>,
 
   // Library
   getLibrary: (filter: LibraryFilter) => ipcRenderer.invoke('library:list', filter),
@@ -27,8 +28,8 @@ const electronAPI: ElectronAPI = {
   copyLocalFile: (localAudioUrl: string, outputFilename: string) => ipcRenderer.invoke('file:copy-local', localAudioUrl, outputFilename),
 
   // Event listeners
-  onTaskUpdate: (callback: (data: { taskId: string; status: string; progress: number }) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, data: { taskId: string; status: string; progress: number }) => callback(data);
+  onTaskUpdate: (callback: (data: TaskUpdateEvent) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: TaskUpdateEvent) => callback(data);
     ipcRenderer.on('music:task-update', handler);
     return () => {
       ipcRenderer.removeListener('music:task-update', handler);

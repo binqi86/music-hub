@@ -1,6 +1,6 @@
 import { apiClient } from '../lib/api-client';
 import type { MusicProvider, SubmitResponse, TaskResult, GenerationParams, CoverParams, ExtendParams, StemsParams, MVParams } from './types';
-import { normalizeTaskStatus } from './types';
+import { normalizeTaskStatus, extractSubmittedTask } from './types';
 
 export class SunoProvider implements MusicProvider {
   readonly id = 'suno';
@@ -45,7 +45,7 @@ export class SunoProvider implements MusicProvider {
       data: {
         id: string;
         status: string;
-        progress: number;
+        progress?: number;
         result?: {
           music?: Array<{
             audio_url?: string;
@@ -68,13 +68,13 @@ export class SunoProvider implements MusicProvider {
         };
         error?: { message: string };
       };
-    }>(`/v1/music/tasks/${taskId}`);
+    }>(`/v1/music/tasks/${taskId}?language=zh`);
 
     const d = response.data;
     return {
       taskId: d.id,
       status: normalizeTaskStatus(d.status),
-      progress: d.progress,
+      progress: typeof d.progress === 'number' ? d.progress : 0,
       result: d.result ? {
         music: d.result.music?.map(m => ({
           audio_url: m.audio_url,
@@ -187,12 +187,12 @@ export class SunoProvider implements MusicProvider {
   }
 
   async upload(audioUrl: string): Promise<SubmitResponse> {
-    const response = await apiClient.post<{ code: number; data: Array<{ status: string; task_id: string }> }>(
+    const response = await apiClient.post(
       '/v1/music/generations/uploadTask',
       { model: 'suno', audioFilePath: audioUrl }
     );
 
-    return { taskId: response.data[0].task_id, status: response.data[0].status };
+    return extractSubmittedTask(response, 'Suno 上传音频');
   }
 
   async remaster(params: { taskId: string; audioIndex?: number; version?: string }): Promise<SubmitResponse> {

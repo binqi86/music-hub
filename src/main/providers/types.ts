@@ -15,6 +15,31 @@ export function normalizeTaskStatus(status: string): string {
   return status;
 }
 
+/**
+ * 从「提交类」接口的响应里取出 task_id。
+ *
+ * APIMart 的提交接口统一返回 `{ code, data: [{ status, task_id }] }`，
+ * 但失败时可能返回错误体、或 data 不是数组。直接读 `data[0].task_id`
+ * 会抛出 "Cannot read properties of undefined"，把真正的原因盖掉。
+ * 这里统一校验并把原始响应带进错误信息，方便定位。
+ */
+export function extractSubmittedTask(payload: unknown, context: string): SubmitResponse {
+  const first = (payload as { data?: unknown } | null)?.data;
+  const item = Array.isArray(first) ? (first[0] as { task_id?: string; status?: string } | undefined) : undefined;
+
+  if (!item || typeof item.task_id !== 'string' || !item.task_id) {
+    let raw = '';
+    try {
+      raw = JSON.stringify(payload);
+    } catch {
+      raw = String(payload);
+    }
+    throw new Error(`${context}：上游返回了无法识别的结果 ${raw.slice(0, 300)}`);
+  }
+
+  return { taskId: item.task_id, status: item.status || 'submitted' };
+}
+
 export interface MusicProvider {
   readonly id: string;
   readonly name: string;

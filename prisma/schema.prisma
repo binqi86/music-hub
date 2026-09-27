@@ -10,6 +10,7 @@ datasource db {
 model MusicTrack {
   id           String   @id @default(cuid())
   taskId       String
+  clipId       String?
   title        String?
   lyrics       String?
   prompt       String?
@@ -59,7 +60,8 @@ model ProviderConfig {
   baseUrl     String   @default("")
   displayName String
   isActive    Boolean  @default(true)
-  useTunnel   Boolean  @default(true)
+  /** 是否在图床上传失败时回退到 Cloudflare 隧道（默认关闭） */
+  useTunnel   Boolean  @default(false)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }

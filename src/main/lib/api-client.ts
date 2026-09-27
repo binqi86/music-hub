@@ -1,4 +1,4 @@
-let BASE_URL = 'https://api.apimart.ai';
+let BASE_URL = 'https://api.apib.ai';
 let API_KEY = '';
 
 export function configureProvider(config: { apiKey: string; baseUrl: string }) {

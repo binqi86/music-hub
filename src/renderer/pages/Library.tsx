@@ -6,6 +6,7 @@ import { Badge } from '../components/ui/Badge';
 import { Spinner } from '../components/ui/Spinner';
 import { Modal } from '../components/ui/Modal';
 import { usePlayerStore } from '../stores/player-store';
+import { useGenerationStore } from '../stores/generation-store';
 import { getLibrary, deleteTrack } from '../lib/electron-api';
 import { formatDuration, formatDate, getModelLabel, getModeLabel, getStatusColor } from '../lib/utils';
 import type { MusicTrackData } from '../../shared/types';
@@ -47,6 +48,12 @@ export function Library({ onNavigate }: LibraryProps) {
   useEffect(() => {
     fetchLibrary();
   }, [fetchLibrary]);
+
+  // 有任务完成时刷新列表，避免"歌已经好了、曲库里还是生成中"
+  const revision = useGenerationStore((s) => s.revision);
+  useEffect(() => {
+    if (revision > 0) fetchLibrary();
+  }, [revision, fetchLibrary]);
 
   const handleDelete = async () => {
     if (!deleteId) return;

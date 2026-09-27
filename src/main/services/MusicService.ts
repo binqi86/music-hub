@@ -4,13 +4,17 @@ import { configureProvider } from '../lib/api-client';
 import { ProviderFactory } from '../providers/ProviderFactory';
 import { TaskManager } from './TaskManager';
 import { downloadToMusicStorage, getLocalAudioUrl, getFilenameFromUrl } from '../utils/music-storage';
+import { describeUpstreamError } from '../utils/upstream-error';
 import type { MusicProvider, TaskResult } from '../providers/types';
-import type { GenerationParams, CoverParams, ExtendParams, StemsParams, MVParams } from '../../shared/types';
+import type { GenerationParams, CoverParams, ExtendParams, StemsParams, MVParams, UploadResult } from '../../shared/types';
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export class MusicService {
   private taskManager = TaskManager.getInstance();
   private window: BrowserWindow | null;
-  private activeUseTunnel = true;
+  /** 图床上传失败时是否允许回退到 Cloudflare 隧道（默认关闭） */
+  private activeUseTunnel = false;
 
   constructor(window?: BrowserWindow | null) {
     this.window = window ?? null;
@@ -28,6 +32,10 @@ export class MusicService {
     }
   }
 
+  /**
+   * 图床（uguu）上传失败时，是否允许回退到 Cloudflare 隧道。
+   * 默认关闭：隧道的临时 hostname 需要 DNS 传播时间，第三方回调常因此抓不到文件。
+   */
   async shouldUseTunnel(): Promise<boolean> {
     await this.loadActiveConfig();
     return this.activeUseTunnel;
@@ -53,6 +61,38 @@ export class MusicService {
     }
   }
 
+  /**
+   * 轮询一个任务直到终态。上传音频这类"必须先拿到 clip_id 才能继续"的
+   * 流程会同步等待，其余生成流程仍走 TaskManager 异步轮询。
+   */
+  private async waitForTask(
+    provider: MusicProvider,
+    taskId: string,
+    timeoutMs: number,
+    intervalMs = 5000
+  ): Promise<TaskResult> {
+    const deadline = Date.now() + timeoutMs;
+    await sleep(3000); // 文档建议首次等待约 3 秒
+
+    let last: TaskResult | null = null;
+    for (;;) {
+      try {
+        const status = await provider.getTaskStatus(taskId);
+        last = status;
+        if (status.status === 'completed' || status.status === 'failed') return status;
+      } catch (err) {
+        // 429 / 网络抖动不应直接判定失败，超时前继续重试
+        if (Date.now() > deadline) throw err;
+      }
+
+      if (Date.now() > deadline) {
+        if (last) return last;
+        throw new Error('等待任务结果超时');
+      }
+      await sleep(intervalMs);
+    }
+  }
+
   private async handleResult(taskId: string, result: TaskResult) {
     if (!result.result?.music?.length) return;
 
@@ -62,6 +102,30 @@ export class MusicService {
       orderBy: { createdAt: 'asc' },
     });
 
+    // 词曲分离的产物是一个 zip（只有 file_url，没有 audio_url），单独处理
+    if (original?.mode === 'stems') {
+      const items = result.result.music.filter(m => m.audio_url || m.file_url || m.url);
+      const existing = await prisma.stemTrack.count({ where: { musicTrackId: original.id } });
+      if (existing === 0) {
+        await prisma.stemTrack.createMany({
+          data: items.map((m, i) => ({
+            musicTrackId: original.id,
+            stemType: m.mime_type === 'application/zip' || m.file_url?.endsWith('.zip')
+              ? '分轨包 (zip)'
+              : (m.title || `音轨 ${i + 1}`),
+            audioUrl: m.audio_url || m.file_url || m.url || null,
+            title: m.title || null,
+            duration: m.duration ?? null,
+          })),
+        });
+      }
+      await prisma.musicTrack.update({
+        where: { id: original.id },
+        data: { status: 'completed', errorMessage: null, clipId: items[0]?.clip_id ?? original.clipId },
+      });
+      return;
+    }
+
     // First song: update the original MusicTrack record
     const firstMusic = result.result.music.find(m => m.audio_url);
     if (firstMusic && original) {
@@ -70,6 +134,7 @@ export class MusicService {
         where: { id: original.id },
         data: {
           status: 'completed',
+          errorMessage: null,
           title: firstMusic.title || null,
           audioUrl: firstMusic.audio_url || null,
           localAudioUrl: localAudioUrl,
@@ -78,12 +143,13 @@ export class MusicService {
           lyrics: firstMusic.lyrics || null,
           duration: firstMusic.duration || null,
           tags: firstMusic.tags ? JSON.stringify(firstMusic.tags) : null,
+          clipId: firstMusic.clip_id || null,
         },
       });
     } else {
       await prisma.musicTrack.updateMany({
         where: { taskId },
-        data: { status: 'completed' },
+        data: { status: 'completed', errorMessage: null },
       });
     }
 
@@ -108,6 +174,7 @@ export class MusicService {
           tags: m.tags ? JSON.stringify(m.tags) : null,
           prompt: original?.prompt || null,
           params: original?.params || null,
+          clipId: m.clip_id || null,
         },
       });
 
@@ -146,7 +213,7 @@ export class MusicService {
       {
         taskId: submitResult.taskId,
         provider,
-        interval: 3000,
+        interval: 5000,
         onComplete: (result) => this.handleResult(submitResult.taskId, result),
         onError: () => {},
       },
@@ -156,6 +223,20 @@ export class MusicService {
     return { taskId: submitResult.taskId, id: track.id };
   }
 
+  /**
+   * 定位衍生操作的源曲目：Suno 用 task_id 定位，Flow Music 用 clip_id 定位。
+   */
+  private async findSourceTrack(params: { taskId: string; clipId?: string }) {
+    if (params.clipId) {
+      const byClip = await prisma.musicTrack.findFirst({
+        where: { clipId: params.clipId },
+        orderBy: { createdAt: 'asc' },
+      });
+      if (byClip) return byClip;
+    }
+    return prisma.musicTrack.findFirst({ where: { taskId: params.taskId } });
+  }
+
   async submitCover(params: CoverParams): Promise<{ taskId: string }> {
     await this.loadActiveConfig();
     const model = params.model || 'suno';
@@ -163,7 +244,7 @@ export class MusicService {
 
     const submitResult = await provider.cover!(params);
 
-    const parentTrack = await prisma.musicTrack.findFirst({ where: { taskId: params.taskId } });
+    const parentTrack = await this.findSourceTrack(params);
 
     await prisma.musicTrack.create({
       data: {
@@ -182,7 +263,7 @@ export class MusicService {
       {
         taskId: submitResult.taskId,
         provider,
-        interval: 3000,
+        interval: 5000,
         onComplete: (result) => this.handleResult(submitResult.taskId, result),
         onError: () => {},
       },
@@ -199,7 +280,7 @@ export class MusicService {
 
     const submitResult = await provider.extend!(params);
 
-    const parentTrack = await prisma.musicTrack.findFirst({ where: { taskId: params.taskId } });
+    const parentTrack = await this.findSourceTrack(params);
 
     await prisma.musicTrack.create({
       data: {
@@ -217,7 +298,7 @@ export class MusicService {
       {
         taskId: submitResult.taskId,
         provider,
-        interval: 3000,
+        interval: 5000,
         onComplete: (result) => this.handleResult(submitResult.taskId, result),
         onError: () => {},
       },
@@ -234,7 +315,7 @@ export class MusicService {
 
     const submitResult = await provider.separateStems!(params);
 
-    const parentTrack = await prisma.musicTrack.findFirst({ where: { taskId: params.taskId } });
+    const parentTrack = await this.findSourceTrack(params);
 
     await prisma.musicTrack.create({
       data: {
@@ -251,7 +332,7 @@ export class MusicService {
       {
         taskId: submitResult.taskId,
         provider,
-        interval: 3000,
+        interval: 5000,
         onComplete: (result) => this.handleResult(submitResult.taskId, result),
         onError: () => {},
       },
@@ -268,7 +349,7 @@ export class MusicService {
 
     const submitResult = await provider.generateMV!(params);
 
-    const parentTrack = await prisma.musicTrack.findFirst({ where: { taskId: params.taskId } });
+    const parentTrack = await this.findSourceTrack(params);
 
     await prisma.musicTrack.create({
       data: {
@@ -285,7 +366,7 @@ export class MusicService {
       {
         taskId: submitResult.taskId,
         provider,
-        interval: 3000,
+        interval: 5000,
         onComplete: (result) => this.handleResult(submitResult.taskId, result),
         onError: () => {},
       },
@@ -436,33 +517,97 @@ export class MusicService {
     throw new Error('歌词时间轴生成超时');
   }
 
-  async submitUpload(audioUrl: string): Promise<{ taskId: string }> {
+  /**
+   * 上传外部音频，并等到任务完成、拿到 clip_id 后返回。
+   * Flow Music 与 Suno 的上传端点不同，必须按所选模型路由。
+   */
+  async submitUpload(audioUrl: string, model = 'suno'): Promise<UploadResult> {
     await this.loadActiveConfig();
-    // Use Suno upload endpoint by default
-    const provider = this.getProvider('suno');
-    const submitResult = await provider.upload!(audioUrl);
+    const provider = this.getProvider(model);
 
-    await prisma.musicTrack.create({
+    if (!provider.upload) {
+      throw new Error(`${provider.name} 不支持上传音频`);
+    }
+
+    const submitResult = await provider.upload(audioUrl);
+    console.log(`[upload] 已提交给上游 (model=${model}): task=${submitResult.taskId}`);
+
+    const track = await prisma.musicTrack.create({
       data: {
         taskId: submitResult.taskId,
-        model: 'suno',
+        model,
         mode: 'upload',
         status: 'submitted',
         params: JSON.stringify({ audioUrl }),
       },
     });
 
-    this.taskManager.startPolling(
-      {
-        taskId: submitResult.taskId,
-        provider,
-        interval: 3000,
-        onComplete: (result) => this.handleResult(submitResult.taskId, result),
-        onError: () => {},
-      },
-      this.window ?? undefined
-    );
+    // 上传本身也是异步任务：只有完成后才能从 result.music[0].clip_id 拿到源音乐标识，
+    // 后续翻唱 / 续写 / 分轨都基于这个 clip_id。
+    let finalStatus: TaskResult;
+    try {
+      finalStatus = await this.waitForTask(provider, submitResult.taskId, 180000);
+    } catch (err) {
+      const msg = describeUpstreamError(
+        err instanceof Error ? err.message : '音频导入失败',
+        { taskId: submitResult.taskId, stage: '导入音频' }
+      );
+      await prisma.musicTrack
+        .update({ where: { id: track.id }, data: { status: 'failed', errorMessage: msg } })
+        .catch(() => {});
+      throw new Error(msg);
+    }
 
-    return { taskId: submitResult.taskId };
+    if (finalStatus.status !== 'completed') {
+      // 上游把失败原因放在 result.error 里（例如内容政策拦截），打印原始体方便排查
+      console.error(
+        `[upload] 上游导入任务失败 task=${submitResult.taskId}: ${JSON.stringify(finalStatus.error ?? {})}`
+      );
+      const msg = describeUpstreamError(finalStatus.error?.message || '音频导入失败', {
+        taskId: submitResult.taskId,
+        stage: '导入音频',
+      });
+      await prisma.musicTrack
+        .update({ where: { id: track.id }, data: { status: 'failed', errorMessage: msg } })
+        .catch(() => {});
+      throw new Error(msg);
+    }
+
+    const item = finalStatus.result?.music?.find(m => m.clip_id || m.audio_url || m.url);
+    const clipId = item?.clip_id ?? null;
+    const remoteAudioUrl = item?.audio_url ?? item?.url ?? null;
+    const duration = item?.duration ?? null;
+    const title = item?.title ?? null;
+
+    // 本地再存一份：既方便离线播放，也让详情页能"重新上传本地文件换算新 clip_id"
+    const localAudioUrl = remoteAudioUrl
+      ? await this.downloadAudioLocally(
+          { audio_url: remoteAudioUrl, title: title ?? undefined },
+          track.id,
+          0
+        )
+      : null;
+
+    await prisma.musicTrack.update({
+      where: { id: track.id },
+      data: {
+        status: 'completed',
+        errorMessage: null,
+        clipId,
+        audioUrl: remoteAudioUrl,
+        localAudioUrl,
+        title,
+        duration,
+      },
+    });
+
+    return {
+      taskId: submitResult.taskId,
+      trackId: track.id,
+      clipId,
+      audioUrl: remoteAudioUrl,
+      title,
+      duration,
+    };
   }
 }
