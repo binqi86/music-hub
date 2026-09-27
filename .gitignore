@@ -4,3 +4,5 @@ prisma/dev.db
 prisma/dev.db-journal
 *.log
 .DS_Store
+.workbuddy/memory/2026-09-25.md
+/.workbuddy
